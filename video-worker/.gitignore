@@ -1,0 +1,26 @@
+# Environment variables
+.env
+.env.local
+
+# Generated assets
+temp_assets/
+*.mp3
+*.wav
+*.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+

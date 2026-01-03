@@ -1,0 +1,6 @@
+# YouTube SaaS Project Rules
+- Tech Stack: Next.js (App Router), Node.js, Python 3.12, Redis, PostgreSQL.
+- Python Workflows: Use 'uv' for package management. Prefer 'MoviePy' for video logic.
+- Node.js Workflows: Use TypeScript and 'Drizzle ORM'.
+- Style: Follow 'shadcn/ui' for frontend components.
+- Optimization: When writing Python, ensure we use context managers for file handling to avoid memory leaks during video rendering.
