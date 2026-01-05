@@ -6,11 +6,13 @@ Polls the PostgreSQL database for new video generation jobs and processes them.
 import time
 import logging
 import sys
+import os
+import pathlib
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any
 from config import Config
-from asset_generator import generate_assets, mask_api_key
+from asset_generator import generate_assets, render_video, mask_api_key
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +39,9 @@ POLL_INTERVAL = Config.POLL_INTERVAL
 
 # Track the last processed job ID to avoid reprocessing
 last_processed_id = 0
+
+# Test mode flag - when True, uses test assets instead of generating new ones
+TEST_MODE = True
 
 
 def get_db_connection():
@@ -172,26 +177,102 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
     logger.info(f'✅ Job {job_id} status updated to: processing')
     
     try:
-        # Generate assets (script and audio)
-        logger.info(f'📦 Starting asset generation for job {job_id}...')
         start_time = time.time()
         
-        assets = generate_assets(job_id, topic)
+        # Check if we're in test mode
+        if TEST_MODE:
+            logger.info('🧪 TEST_MODE enabled - using test assets')
+            
+            # Test assets directory
+            test_dir = pathlib.Path('temp_assets') / 'test'
+            test_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Read script from file
+            script_path = test_dir / 'script.txt'
+            if not script_path.exists():
+                raise FileNotFoundError(f'Test script not found: {script_path}')
+            
+            with open(script_path, 'r', encoding='utf-8') as f:
+                script_text = f.read().strip()
+            
+            # Get audio file
+            audio_path = test_dir / 'test_audio.mp3'
+            if not audio_path.exists():
+                raise FileNotFoundError(f'Test audio not found: {audio_path}')
+            audio_path = str(audio_path)
+            
+            # Find all image and video files in test directory
+            # Supported image formats
+            image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
+            # Supported video formats
+            video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm']
+            
+            media_paths = []
+            for file_path in test_dir.iterdir():
+                if file_path.is_file():
+                    ext = file_path.suffix.lower()
+                    if ext in image_extensions or ext in video_extensions:
+                        # Skip the audio file if it has a video extension
+                        if file_path.name != 'test_audio.mp3':
+                            media_paths.append(str(file_path))
+            
+            # Sort media paths for consistent ordering
+            media_paths.sort()
+            
+            if not media_paths:
+                raise FileNotFoundError(f'No image or video files found in {test_dir}')
+            
+            logger.info(f'   Using test script: {script_path} ({len(script_text)} chars)')
+            logger.info(f'   Using test audio: {audio_path}')
+            logger.info(f'   Using test media: {len(media_paths)} file(s)')
+            for i, media_path in enumerate(media_paths, 1):
+                logger.info(f'      {i}. {os.path.basename(media_path)}')
+        else:
+            # Generate assets (script, audio, and images)
+            logger.info(f'📦 Starting asset generation for job {job_id}...')
+            
+            assets = generate_assets(job_id, topic)
+            
+            elapsed_time = time.time() - start_time
+            logger.info(f'✅ Asset generation completed in {elapsed_time:.2f} seconds')
+            logger.info(f'   Script: {assets["script_path"]}')
+            logger.info(f'   Audio: {assets["audio_path"]}')
+            logger.info(f'   Images: {len(assets.get("image_paths", []))} image(s)')
+            
+            # Read script text from file
+            with open(assets['script_path'], 'r', encoding='utf-8') as f:
+                script_text = f.read()
+            
+            audio_path = assets['audio_path']
+            image_paths = assets.get('image_paths', [])
         
-        elapsed_time = time.time() - start_time
-        logger.info(f'✅ Asset generation completed in {elapsed_time:.2f} seconds')
-        logger.info(f'   Script: {assets["script_path"]}')
-        logger.info(f'   Audio: {assets["audio_path"]}')
+        # Render video from assets
+        logger.info(f'🎬 Rendering video from assets...')
+        video_start_time = time.time()
         
-        # TODO: Add video rendering logic here using the generated assets
-        # For now, we mark the job as completed after assets are generated
+        # Create output video path
+        job_dir = pathlib.Path(Config.TEMP_ASSETS_DIR) / str(job_id)
+        job_dir.mkdir(exist_ok=True)
+        video_output_path = str(job_dir / 'video.mp4')
+        
+        # Render the video
+        # Use media_paths in test mode, image_paths in normal mode
+        render_media_paths = media_paths if TEST_MODE else image_paths
+        render_video(script_text, audio_path, render_media_paths, video_output_path)
+        
+        video_elapsed = time.time() - video_start_time
+        logger.info(f'✅ Video rendering completed in {video_elapsed:.2f} seconds')
+        logger.info(f'   Video output: {video_output_path}')
+        
+        total_time = time.time() - start_time
         
         # Update job status to 'completed'
         update_job_status(cursor, job_id, 'completed')
         logger.info('=' * 60)
         logger.info(f'✅ JOB {job_id} COMPLETED SUCCESSFULLY')
         logger.info(f'   Topic: {topic}')
-        logger.info(f'   Total time: {elapsed_time:.2f} seconds')
+        logger.info(f'   Total time: {total_time:.2f} seconds')
+        logger.info(f'   Video: {video_output_path}')
         logger.info('=' * 60)
         
     except Exception as e:
