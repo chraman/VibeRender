@@ -12,7 +12,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any
 from config import Config
-from asset_generator import generate_assets, render_video, mask_api_key
+from asset_generator import generate_assets
+from video_renderer import render_video
+from utils import mask_api_key
 
 # Configure logging
 logging.basicConfig(
@@ -41,7 +43,7 @@ POLL_INTERVAL = Config.POLL_INTERVAL
 last_processed_id = 0
 
 # Test mode flag - when True, uses test assets instead of generating new ones
-TEST_MODE = True
+TEST_MODE = False
 
 
 def get_db_connection():
