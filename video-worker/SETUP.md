@@ -20,7 +20,7 @@ uv pip install -r requirements.txt
 
 Set these in your shell or system environment:
 ```bash
-export OPENAI_API_KEY="your_openai_key_here"
+export GEMINI_API_KEY="your_gemini_key_here"
 export ELEVENLABS_API_KEY="your_elevenlabs_key_here"
 ```
 
@@ -28,27 +28,27 @@ export ELEVENLABS_API_KEY="your_elevenlabs_key_here"
 
 Create a `.env` file in the `video-worker/` directory:
 ```env
-OPENAI_API_KEY=your_openai_key_here
+GEMINI_API_KEY=your_gemini_key_here
 ELEVENLABS_API_KEY=your_elevenlabs_key_here
 ```
 
 Then load it before running:
 ```bash
 # On Windows (PowerShell)
-$env:OPENAI_API_KEY="your_key"
+$env:GEMINI_API_KEY="your_key"
 $env:ELEVENLABS_API_KEY="your_key"
 
 # On Mac/Linux
-export OPENAI_API_KEY="your_key"
+export GEMINI_API_KEY="your_key"
 export ELEVENLABS_API_KEY="your_key"
 ```
 
 ### 3. Get API Keys
 
-**OpenAI API Key:**
-1. Go to https://platform.openai.com/api-keys
-2. Sign in or create an account
-3. Click "Create new secret key"
+**Google Gemini API Key:**
+1. Go to https://aistudio.google.com/app/apikey
+2. Sign in with your Google account
+3. Click "Create API Key"
 4. Copy the key (you won't see it again!)
 
 **ElevenLabs API Key:**
@@ -97,7 +97,7 @@ temp_assets/
 
 ## Troubleshooting
 
-### "OPENAI_API_KEY is not set"
+### "GEMINI_API_KEY is not set"
 - Make sure the environment variable is set
 - Check that you're using the correct variable name
 - Restart your terminal/IDE after setting variables
@@ -105,9 +105,9 @@ temp_assets/
 ### "ELEVENLABS_API_KEY is not set"
 - Same as above - verify the variable is set correctly
 
-### "Failed to generate script with OpenAI"
-- Check your OpenAI API key is valid
-- Verify you have credits in your OpenAI account
+### "Failed to generate script with Gemini"
+- Check your Google Gemini API key is valid
+- Verify you have quota available in your Google AI Studio account
 - Check your internet connection
 
 ### "Failed to generate audio with ElevenLabs"

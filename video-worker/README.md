@@ -20,7 +20,7 @@ Create a `.env` file in the `video-worker/` directory (or set environment variab
 
 ```bash
 # Required API Keys
-OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 
 # Optional: Database and worker settings
@@ -34,13 +34,13 @@ TEMP_ASSETS_DIR=temp_assets
 ```
 
 **Get API Keys:**
-- OpenAI: https://platform.openai.com/api-keys
+- Google Gemini: https://aistudio.google.com/app/apikey
 - ElevenLabs: https://elevenlabs.io/app/settings/api-keys
 
 ## Configuration
 
 ### Required Environment Variables
-- `OPENAI_API_KEY` - OpenAI API key for script generation
+- `GEMINI_API_KEY` - Google Gemini API key for script generation
 - `ELEVENLABS_API_KEY` - ElevenLabs API key for text-to-speech
 
 ### Optional Environment Variables
@@ -60,7 +60,7 @@ python main.py
 
 The worker will:
 1. Poll the database for new jobs with status 'pending'
-2. Generate a 30-second video script using OpenAI
+2. Generate a 30-second video script using Google Gemini (gemini-2.0-flash model)
 3. Convert the script to MP3 audio using ElevenLabs
 4. Store assets in `temp_assets/{job_id}/` directory
 5. Update job status to 'completed' or 'failed'
@@ -83,5 +83,5 @@ temp_assets/
 
 - `main.py` - Main worker loop and job processing
 - `config.py` - Configuration management and environment variable loading
-- `asset_generator.py` - OpenAI script generation and ElevenLabs audio conversion
+- `asset_generator.py` - Google Gemini script generation and ElevenLabs audio conversion
 

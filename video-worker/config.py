@@ -10,8 +10,8 @@ from typing import Optional
 class Config:
     """Application configuration loaded from environment variables."""
     
-    # OpenAI API Configuration
-    OPENAI_API_KEY: Optional[str] = os.getenv('OPENAI_API_KEY')
+    # Google Gemini API Configuration
+    GEMINI_API_KEY: Optional[str] = os.getenv('GEMINI_API_KEY')
     
     # ElevenLabs API Configuration
     ELEVENLABS_API_KEY: Optional[str] = os.getenv('ELEVENLABS_API_KEY')
@@ -39,8 +39,8 @@ class Config:
         """
         missing_keys = []
         
-        if not cls.OPENAI_API_KEY:
-            missing_keys.append('OPENAI_API_KEY')
+        if not cls.GEMINI_API_KEY:
+            missing_keys.append('GEMINI_API_KEY')
         
         if not cls.ELEVENLABS_API_KEY:
             missing_keys.append('ELEVENLABS_API_KEY')

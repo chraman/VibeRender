@@ -4,11 +4,24 @@ Polls the PostgreSQL database for new video generation jobs and processes them.
 """
 
 import time
+import logging
+import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any
 from config import Config
-from asset_generator import generate_assets
+from asset_generator import generate_assets, mask_api_key
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Database connection configuration from Config
 DB_CONFIG = {
@@ -34,6 +47,35 @@ def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 
+def get_all_jobs_summary(cursor: RealDictCursor) -> Dict[str, Any]:
+    """
+    Get a summary of all jobs in the database for debugging.
+    
+    Args:
+        cursor: Database cursor
+        
+    Returns:
+        Dictionary with job counts by status
+    """
+    query = """
+        SELECT status, COUNT(*) as count, MAX(id) as max_id, MIN(id) as min_id
+        FROM jobs
+        GROUP BY status
+    """
+    cursor.execute(query)
+    results = cursor.fetchall()
+    
+    summary = {}
+    for row in results:
+        summary[row['status']] = {
+            'count': row['count'],
+            'max_id': row['max_id'],
+            'min_id': row['min_id']
+        }
+    
+    return summary
+
+
 def get_pending_jobs(cursor: RealDictCursor, last_id: int) -> list[Dict[str, Any]]:
     """
     Fetch new pending jobs from the database that haven't been processed yet.
@@ -45,6 +87,13 @@ def get_pending_jobs(cursor: RealDictCursor, last_id: int) -> list[Dict[str, Any
     Returns:
         List of job dictionaries
     """
+    logger.debug(f'Querying for pending jobs with id > {last_id} AND status = "pending"')
+    
+    # First, get summary of all jobs for debugging
+    summary = get_all_jobs_summary(cursor)
+    if summary:
+        logger.debug(f'📊 Database job summary: {summary}')
+    
     query = """
         SELECT id, topic, status, created_at
         FROM jobs
@@ -53,7 +102,28 @@ def get_pending_jobs(cursor: RealDictCursor, last_id: int) -> list[Dict[str, Any
         LIMIT 10
     """
     cursor.execute(query, (last_id,))
-    return cursor.fetchall()
+    jobs = cursor.fetchall()
+    
+    if jobs:
+        logger.info(f'✅ Found {len(jobs)} pending job(s): {[j["id"] for j in jobs]}')
+        for job in jobs:
+            logger.info(f'   - Job {job["id"]}: "{job["topic"]}" (created: {job["created_at"]})')
+    else:
+        # Check if there are any pending jobs at all (for debugging)
+        check_query = "SELECT COUNT(*) as count FROM jobs WHERE status = 'pending'"
+        cursor.execute(check_query)
+        pending_count = cursor.fetchone()['count']
+        if pending_count > 0:
+            logger.warning(f'⚠️  There are {pending_count} pending job(s) in database, but none match id > {last_processed_id}')
+            # Show the pending jobs that are being skipped
+            show_query = "SELECT id, topic, created_at FROM jobs WHERE status = 'pending' ORDER BY id"
+            cursor.execute(show_query)
+            skipped_jobs = cursor.fetchall()
+            logger.warning(f'   Pending jobs being skipped: {[{"id": j["id"], "topic": j["topic"]} for j in skipped_jobs]}')
+        else:
+            logger.debug(f'No pending jobs in database')
+    
+    return jobs
 
 
 def update_job_status(cursor: RealDictCursor, job_id: int, status: str):
@@ -65,6 +135,7 @@ def update_job_status(cursor: RealDictCursor, job_id: int, status: str):
         job_id: The ID of the job to update
         status: New status ('processing', 'completed', 'failed')
     """
+    logger.info(f'Updating job {job_id} status to: {status}')
     query = """
         UPDATE jobs
         SET status = %s, updated_at = NOW()
@@ -76,7 +147,7 @@ def update_job_status(cursor: RealDictCursor, job_id: int, status: str):
 def process_job(job: Dict[str, Any], cursor: RealDictCursor):
     """
     Process a single video generation job.
-    Generates script and audio assets using OpenAI and ElevenLabs.
+    Generates script and audio assets using Google Gemini and ElevenLabs.
     
     Args:
         job: Job dictionary with id, topic, status, created_at
@@ -87,29 +158,49 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
     """
     job_id = job['id']
     topic = job['topic']
+    created_at = job.get('created_at', 'unknown')
     
-    print(f'\n🎬 Processing video for: {topic} (Job ID: {job_id})')
+    logger.info('=' * 60)
+    logger.info(f'🎬 STARTING JOB PROCESSING')
+    logger.info(f'   Job ID: {job_id}')
+    logger.info(f'   Topic: {topic}')
+    logger.info(f'   Created: {created_at}')
+    logger.info('=' * 60)
     
     # Update job status to 'processing'
     update_job_status(cursor, job_id, 'processing')
+    logger.info(f'✅ Job {job_id} status updated to: processing')
     
     try:
         # Generate assets (script and audio)
+        logger.info(f'📦 Starting asset generation for job {job_id}...')
+        start_time = time.time()
+        
         assets = generate_assets(job_id, topic)
         
-        print(f'  📦 Assets generated:')
-        print(f'     Script: {assets["script_path"]}')
-        print(f'     Audio: {assets["audio_path"]}')
+        elapsed_time = time.time() - start_time
+        logger.info(f'✅ Asset generation completed in {elapsed_time:.2f} seconds')
+        logger.info(f'   Script: {assets["script_path"]}')
+        logger.info(f'   Audio: {assets["audio_path"]}')
         
         # TODO: Add video rendering logic here using the generated assets
         # For now, we mark the job as completed after assets are generated
         
         # Update job status to 'completed'
         update_job_status(cursor, job_id, 'completed')
-        print(f'  ✅ Completed processing job {job_id} for topic: {topic}')
+        logger.info('=' * 60)
+        logger.info(f'✅ JOB {job_id} COMPLETED SUCCESSFULLY')
+        logger.info(f'   Topic: {topic}')
+        logger.info(f'   Total time: {elapsed_time:.2f} seconds')
+        logger.info('=' * 60)
         
     except Exception as e:
-        print(f'  ❌ Error generating assets for job {job_id}: {e}')
+        logger.error('=' * 60)
+        logger.error(f'❌ JOB {job_id} FAILED')
+        logger.error(f'   Topic: {topic}')
+        logger.error(f'   Error: {str(e)}')
+        logger.error(f'   Error type: {type(e).__name__}')
+        logger.error('=' * 60)
         # Update job status to 'failed'
         update_job_status(cursor, job_id, 'failed')
         raise
@@ -122,19 +213,53 @@ def main():
     global last_processed_id
     
     # Validate configuration before starting
+    logger.info('🔍 Validating configuration...')
+    
+    # Log API keys (masked for security)
+    logger.info('🔑 API Keys Status:')
+    if Config.GEMINI_API_KEY:
+        logger.info(f'   GEMINI_API_KEY: {mask_api_key(Config.GEMINI_API_KEY)} (length: {len(Config.GEMINI_API_KEY)})')
+    else:
+        logger.warning('   GEMINI_API_KEY: ❌ NOT SET')
+    
+    if Config.ELEVENLABS_API_KEY:
+        logger.info(f'   ELEVENLABS_API_KEY: {mask_api_key(Config.ELEVENLABS_API_KEY)} (length: {len(Config.ELEVENLABS_API_KEY)})')
+    else:
+        logger.warning('   ELEVENLABS_API_KEY: ❌ NOT SET')
+    
     if not Config.validate():
-        print('\n❌ Configuration validation failed. Please set required API keys.')
-        print('   Set OPENAI_API_KEY and ELEVENLABS_API_KEY as environment variables.')
+        logger.error('❌ Configuration validation failed. Please set required API keys.')
+        logger.error('   Set GEMINI_API_KEY and ELEVENLABS_API_KEY as environment variables.')
         return
     
-    print('=' * 60)
-    print('VibeRender Video Worker started')
-    print('=' * 60)
-    print(f'Polling database every {POLL_INTERVAL} seconds...')
-    print(f'Database: {DB_CONFIG["database"]}@{DB_CONFIG["host"]}:{DB_CONFIG["port"]}')
-    print(f'Assets directory: {Config.TEMP_ASSETS_DIR}')
-    print(f'Last processed job ID: {last_processed_id}')
-    print('Press Ctrl+C to stop\n')
+    logger.info('✅ Configuration validated successfully')
+    
+    # Check database connection and get initial job summary
+    try:
+        logger.info('🔍 Checking database connection and job status...')
+        with get_db_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                summary = get_all_jobs_summary(cursor)
+                if summary:
+                    logger.info('📊 Current database job status:')
+                    for status, info in summary.items():
+                        logger.info(f'   {status}: {info["count"]} job(s) (IDs: {info["min_id"]}-{info["max_id"]})')
+                else:
+                    logger.info('📊 No jobs found in database')
+    except Exception as e:
+        logger.warning(f'⚠️  Could not check database status: {e}')
+    
+    logger.info('=' * 60)
+    logger.info('🚀 VibeRender Video Worker STARTED')
+    logger.info('=' * 60)
+    logger.info(f'📊 Configuration:')
+    logger.info(f'   Polling interval: {POLL_INTERVAL} seconds')
+    logger.info(f'   Database: {DB_CONFIG["database"]}@{DB_CONFIG["host"]}:{DB_CONFIG["port"]}')
+    logger.info(f'   Assets directory: {Config.TEMP_ASSETS_DIR}')
+    logger.info(f'   Last processed job ID: {last_processed_id}')
+    logger.info('=' * 60)
+    logger.info('⏳ Starting polling loop...')
+    logger.info('   Press Ctrl+C to stop\n')
     
     poll_count = 0
     
@@ -151,7 +276,7 @@ def main():
                     jobs = get_pending_jobs(cursor, last_processed_id)
                     
                     if jobs:
-                        print(f'\n[{current_time}] Poll #{poll_count}: Found {len(jobs)} new job(s)')
+                        logger.info(f'\n🔔 Poll #{poll_count} [{current_time}]: Found {len(jobs)} new job(s)')
                         
                         # Process each job
                         for job in jobs:
@@ -159,20 +284,33 @@ def main():
                                 process_job(job, cursor)
                                 # Update last processed ID
                                 last_processed_id = max(last_processed_id, job['id'])
+                                logger.info(f'📝 Updated last processed job ID to: {last_processed_id}')
                             except Exception as e:
-                                print(f'❌ Error processing job {job["id"]}: {e}')
+                                logger.error(f'❌ Error processing job {job["id"]}: {e}', exc_info=True)
                                 # Mark job as failed
                                 try:
                                     update_job_status(cursor, job['id'], 'failed')
-                                except:
-                                    pass
+                                except Exception as update_error:
+                                    logger.error(f'❌ Failed to update job {job["id"]} status: {update_error}')
                         
                         # Commit all changes
                         conn.commit()
+                        logger.debug('✅ Database transaction committed')
                     else:
                         # Show polling activity every 10 polls to indicate it's working
                         if poll_count % 10 == 0:
-                            print(f'[{current_time}] Poll #{poll_count}: No new jobs (last processed: {last_processed_id})')
+                            logger.info(f'⏳ Poll #{poll_count} [{current_time}]: No new jobs (last processed: {last_processed_id})')
+                            # Every 10 polls, show database summary for debugging
+                            try:
+                                summary = get_all_jobs_summary(cursor)
+                                if summary:
+                                    pending = summary.get('pending', {})
+                                    if pending.get('count', 0) > 0:
+                                        logger.warning(f'   ⚠️  Note: {pending["count"]} pending job(s) exist but are not being processed')
+                            except:
+                                pass
+                        else:
+                            logger.debug(f'Poll #{poll_count}: No new jobs')
                         
                         # No new jobs, just wait
                         time.sleep(POLL_INTERVAL)
@@ -182,9 +320,10 @@ def main():
             time.sleep(POLL_INTERVAL)
             
     except KeyboardInterrupt:
-        print('\n\nShutting down worker...')
+        logger.info('\n\n🛑 Shutdown signal received...')
+        logger.info('👋 Worker shutting down gracefully')
     except Exception as e:
-        print(f'\n\nFatal error: {e}')
+        logger.critical(f'\n\n💥 FATAL ERROR: {e}', exc_info=True)
         raise
 
 

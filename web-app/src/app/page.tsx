@@ -27,29 +27,51 @@ export default function Home() {
   }, []);
 
   async function loadJobs() {
+    console.log('[FRONTEND] Loading jobs...');
+    const startTime = Date.now();
     const result = await getAllJobs();
+    const elapsedTime = Date.now() - startTime;
+    
     if (result.success && result.jobs) {
+      console.log(`[FRONTEND] ✅ Loaded ${result.jobs.length} job(s) in ${elapsedTime}ms`);
       setJobs(result.jobs);
+    } else {
+      console.error(`[FRONTEND] ❌ Failed to load jobs: ${result.error}`);
     }
     setIsLoadingJobs(false);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const startTime = Date.now();
+    console.log('[FRONTEND] Form submitted');
+    console.log(`  Topic: "${topic}"`);
+    console.log(`  Timestamp: ${new Date().toISOString()}`);
+    
     setIsSubmitting(true);
     setMessage(null);
 
     try {
+      console.log('[FRONTEND] Calling createJob server action...');
       const result = await createJob(topic);
+      const elapsedTime = Date.now() - startTime;
+      
       if (result.success) {
+        console.log(`[FRONTEND] ✅ Job created successfully in ${elapsedTime}ms`);
+        console.log(`  Job ID: ${result.job?.id}`);
+        console.log(`  Status: ${result.job?.status}`);
         setMessage({ type: 'success', text: `Video job created for: ${result.job?.topic}` });
         setTopic('');
         // Reload jobs to show the new one
+        console.log('[FRONTEND] Reloading jobs list...');
         await loadJobs();
       } else {
+        console.error(`[FRONTEND] ❌ Job creation failed: ${result.error}`);
         setMessage({ type: 'error', text: result.error || 'Failed to create job' });
       }
     } catch (error) {
+      const elapsedTime = Date.now() - startTime;
+      console.error(`[FRONTEND] ❌ Unexpected error (${elapsedTime}ms):`, error);
       setMessage({ type: 'error', text: 'An unexpected error occurred' });
     } finally {
       setIsSubmitting(false);
