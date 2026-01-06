@@ -237,12 +237,13 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
             
             elapsed_time = time.time() - start_time
             logger.info(f'✅ Asset generation completed in {elapsed_time:.2f} seconds')
-            logger.info(f'   Script: {assets["script_path"]}')
+            logger.info(f'   Script JSON: {assets["script_path"]}')
+            logger.info(f'   Narration: {assets["narration_path"]}')
             logger.info(f'   Audio: {assets["audio_path"]}')
             logger.info(f'   Images: {len(assets.get("image_paths", []))} image(s)')
             
-            # Read script text from file
-            with open(assets['script_path'], 'r', encoding='utf-8') as f:
+            # Read narration text from narrator_only.txt (for video rendering)
+            with open(assets['narration_path'], 'r', encoding='utf-8') as f:
                 script_text = f.read()
             
             audio_path = assets['audio_path']

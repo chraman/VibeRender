@@ -4,6 +4,7 @@ Main coordinator for generating video assets (script, audio, images).
 """
 
 import os
+import json
 import logging
 import pathlib
 from typing import Dict
@@ -53,7 +54,8 @@ class AssetGenerator:
         Returns:
             Dictionary with paths to generated assets:
             {
-                'script_path': path to script text file,
+                'script_path': path to script JSON file,
+                'narration_path': path to narrator_only.txt file,
                 'audio_path': path to MP3 audio file,
                 'image_paths': list of paths to generated image files
             }
@@ -66,45 +68,60 @@ class AssetGenerator:
         job_dir.mkdir(exist_ok=True)
         
         script_path = job_dir / 'script.txt'
+        narration_path = job_dir / 'narrator_only.txt'
         audio_path = job_dir / 'audio.mp3'
         
-        logger.info(f'📝 Step 1/4: Generating script for topic: "{topic}"')
+        logger.info(f'📝 Step 1/3: Generating script (includes narration and visual prompts) for topic: "{topic}"')
         
-        # Generate script
-        script = self.script_generator.generate_script(topic)
-        # Save script to file using context manager
-        logger.debug(f'💾 Saving script to: {script_path}')
+        # Generate script (now returns JSON structure)
+        script_data = self.script_generator.generate_script(topic)
+        
+        # Extract components from JSON response
+        narration = script_data['narration']
+        visual_prompts = script_data['visual_prompts']
+        audio_vibe = script_data.get('audio_vibe', '')
+        
+        logger.debug(f'   Narration length: {len(narration)} characters')
+        logger.debug(f'   Visual prompts: {len(visual_prompts)} items')
+        logger.debug(f'   Audio vibe: {audio_vibe}')
+        
+        # Save full JSON structure to script.txt (for debugging)
+        logger.debug(f'💾 Saving full JSON to: {script_path}')
         with open(script_path, 'w', encoding='utf-8') as script_file:
-            script_file.write(script)
+            json.dump(script_data, script_file, indent=2, ensure_ascii=False)
         
         script_size = os.path.getsize(script_path)
-        logger.info(f'✅ Script generated and saved: {script_path} ({script_size} bytes)')
-        logger.debug(f'   Script preview: {script[:100]}...')
+        logger.info(f'✅ Script JSON saved: {script_path} ({script_size} bytes)')
         
-        # Generate image prompts from the script
-        logger.info(f'🖼️  Step 2/4: Generating image prompts from script...')
-        image_prompts = self.image_generator.generate_image_prompts(script)
-        logger.info(f'✅ Generated {len(image_prompts)} image prompts')
+        # Save narration only to narrator_only.txt
+        logger.debug(f'💾 Saving narration to: {narration_path}')
+        with open(narration_path, 'w', encoding='utf-8') as narration_file:
+            narration_file.write(narration)
         
-        # Download images for each prompt
-        logger.info(f'📥 Step 3/4: Downloading images from Pollinations.ai...')
+        narration_size = os.path.getsize(narration_path)
+        logger.info(f'✅ Narration saved: {narration_path} ({narration_size} bytes)')
+        logger.debug(f'   Narration preview: {narration[:100]}...')
+        
+        # Download images using visual_prompts from script generation (no separate API call needed)
+        logger.info(f'📥 Step 2/3: Downloading images from Pollinations.ai using visual prompts from script...')
         image_paths = []
-        for index, prompt in enumerate(image_prompts):
-            logger.info(f'   Downloading image {index + 1}/{len(image_prompts)}: {prompt[:60]}...')
+        for index, prompt in enumerate(visual_prompts):
+            logger.info(f'   Downloading image {index + 1}/{len(visual_prompts)}: {prompt[:60]}...')
             image_path = self.image_generator.download_image(prompt, job_id, index)
             image_paths.append(image_path)
         
         logger.info(f'✅ Downloaded {len(image_paths)} images')
         
-        logger.info(f'🎤 Step 4/4: Generating audio from script...')
+        logger.info(f'🎤 Step 3/3: Generating audio from narration...')
         
-        # Generate audio
-        self.audio_generator.generate_audio(script, str(audio_path))
+        # Generate audio using clean narration text (no labels, no parentheses)
+        self.audio_generator.generate_audio(narration, str(audio_path))
         
         logger.info(f'✅ All assets generated successfully for job {job_id}')
         
         return {
             'script_path': str(script_path),
+            'narration_path': str(narration_path),
             'audio_path': str(audio_path),
             'image_paths': image_paths
         }
