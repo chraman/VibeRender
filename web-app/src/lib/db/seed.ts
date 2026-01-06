@@ -36,11 +36,17 @@ async function seed() {
       channelId: channel.id,
       topic: "AI horror story",
       status: "pending",
+      video_theme: "Found Footage / 90s VHS Style",
+      emotional_goal: "Make the viewer feel paranoid",
+      pacing: "Slow build-up to jump-scare"
     },
     {
       channelId: channel.id,
       topic: "Motivational short",
       status: "processing",
+      video_theme: "Found Footage / 90s VHS Style",
+      emotional_goal: "Make the viewer feel paranoid",
+      pacing: "Slow build-up to jump-scare"
     },
   ]);
 

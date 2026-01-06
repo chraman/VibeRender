@@ -22,7 +22,9 @@ export const jobs = pgTable(
       .references(() => channels.id, { onDelete: "cascade" }),
 
     topic: text("topic").notNull(),
-
+    videoTheme: text("video_theme"),
+    emotionalGoal: text("emotional_goal"),
+    pacing: text("pacing"),
     status: jobStatusEnum("status")
       .default("pending")
       .notNull(),

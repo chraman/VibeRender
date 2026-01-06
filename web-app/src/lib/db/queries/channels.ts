@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { channels, jobs } from "@/lib/db/schema";
+import { channels, jobs, ChannelStatus } from "@/lib/db/schema";
 import { eq, desc, count } from "drizzle-orm";
 
 /**
@@ -37,13 +37,28 @@ export async function createChannel(params: {
   userId: string;
   name: string;
   platform?: string;
+  category?: string,
+  subNiche?: string,
+  targetAudience?: string,
+  contentFormat?: string,
+  brandVoice?: string,
+  forbiddenTopics?: string[],
+  status: ChannelStatus
 }) {
+  console.log(params)
   const [channel] = await db
     .insert(channels)
     .values({
       userId: params.userId,
       name: params.name,
       platform: params.platform,
+      category: params.category,
+      subNiche: params.subNiche,
+      targetAudience: params.targetAudience,
+      contentFormat: params.contentFormat,
+      brandVoice: params.brandVoice,
+      forbiddenTopics: params.forbiddenTopics,
+      status: params.status,
     })
     .returning();
 
