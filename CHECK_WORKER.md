@@ -10,7 +10,7 @@ Look at the worker console. You should see:
 VibeRender Video Worker started
 ============================================================
 Polling database every 5 seconds...
-Database: viberender@localhost:5432
+Database: viberender_new@localhost:5432
 Last processed job ID: 0
 Press Ctrl+C to stop
 ```
@@ -42,7 +42,7 @@ The UI automatically refreshes every 3 seconds. You should see:
 If you want to check the database directly:
 
 ```bash
-docker exec -it viberender-postgres psql -U postgres -d viberender
+docker exec -it viberender-new-postgres psql -U postgres -d viberender_new
 ```
 
 Then run:

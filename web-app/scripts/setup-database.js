@@ -15,7 +15,7 @@ const envPath = path.join(__dirname, '..', '.env.local');
 if (!fs.existsSync(envPath)) {
   console.error('❌ .env.local not found!');
   console.error('Create web-app/.env.local with:');
-  console.error('DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender');
+  console.error('DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender_new');
   process.exit(1);
 }
 

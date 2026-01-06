@@ -3,11 +3,11 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: viberender-postgres
+    container_name: viberender-new-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: viberender
+      POSTGRES_DB: viberender_new
     ports:
       - "5432:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: viberender-redis
+    container_name: viberender-new-redis
     ports:
       - "6379:6379"
     volumes:

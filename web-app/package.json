@@ -11,7 +11,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:setup": "node scripts/setup-database.js",
-    "db:test": "node scripts/test-worker.js"
+    "db:test": "node scripts/test-worker.js",
+    "db:seed": "tsx src/lib/db/seed.ts",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "dotenv": "^17.2.3",
@@ -19,7 +21,8 @@
     "next": "16.1.1",
     "postgres": "^3.4.7",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "ts-node": "^10.9.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -32,6 +35,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

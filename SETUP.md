@@ -22,7 +22,7 @@ Verify the containers are running:
 docker ps
 ```
 
-You should see `viberender-postgres` and `viberender-redis` running.
+You should see `viberender-new-postgres` and `viberender-new-redis` running.
 
 ## Step 2: Set Up the Database
 
@@ -47,7 +47,7 @@ touch .env.local
 Open `web-app/.env.local` and add:
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender_new
 ```
 
 ### 2.3 Create Database Schema
@@ -75,7 +75,7 @@ If `db:push` doesn't work, you can connect to PostgreSQL directly:
 
 ```bash
 # Connect to PostgreSQL (password is 'postgres')
-docker exec -it viberender-postgres psql -U postgres -d viberender
+docker exec -it viberender-new-postgres psql -U postgres -d viberender_new
 ```
 
 Then run:
@@ -133,14 +133,14 @@ You should see:
 ```
 VibeRender Video Worker started
 Polling database every 5 seconds...
-Database: viberender@localhost:5432
+Database: viberender_new@localhost:5432
 Press Ctrl+C to stop
 ```
 
 If you see connection errors, make sure:
 - Docker containers are running (`docker ps`)
 - Database is accessible on port 5432
-- The database `viberender` exists
+- The database `viberender_new` exists
 
 ## Step 4: Start the Next.js Frontend
 
@@ -175,13 +175,13 @@ The app will be available at `http://localhost:3000`
 
 2. Test database connection:
    ```bash
-   docker exec -it viberender-postgres psql -U postgres -d viberender -c "SELECT 1;"
+   docker exec -it viberender-new-postgres psql -U postgres -d viberender_new -c "SELECT 1;"
    ```
 
 3. Verify environment variables in `video-worker/` (or use defaults):
    - `DB_HOST=localhost`
    - `DB_PORT=5432`
-   - `DB_NAME=viberender`
+   - `DB_NAME=viberender_new`
    - `DB_USER=postgres`
    - `DB_PASSWORD=postgres`
 

@@ -12,7 +12,7 @@ console.log('🔍 Testing Worker Connection...\n');
 console.log('1. Checking database connection...');
 try {
   const result = execSync(
-    'docker exec viberender-postgres psql -U postgres -d viberender -c "SELECT COUNT(*) FROM jobs;"',
+    'docker exec viberender-new-postgres psql -U postgres -d viberender_new -c "SELECT COUNT(*) FROM jobs;"',
     { encoding: 'utf-8', stdio: 'pipe' }
   );
   console.log('   ✅ Database is accessible');
@@ -27,7 +27,7 @@ try {
 console.log('\n2. Checking for pending jobs...');
 try {
   const result = execSync(
-    'docker exec viberender-postgres psql -U postgres -d viberender -t -c "SELECT COUNT(*) FROM jobs WHERE status = \'pending\';"',
+    'docker exec viberender-new-postgres psql -U postgres -d viberender_new -t -c "SELECT COUNT(*) FROM jobs WHERE status = \'pending\';"',
     { encoding: 'utf-8', stdio: 'pipe' }
   );
   const count = parseInt(result.trim());
@@ -44,7 +44,7 @@ try {
 console.log('\n3. Recent jobs (last 5):');
 try {
   const result = execSync(
-    'docker exec viberender-postgres psql -U postgres -d viberender -c "SELECT id, topic, status, created_at FROM jobs ORDER BY id DESC LIMIT 5;"',
+    'docker exec viberender-new-postgres psql -U postgres -d viberender_new -c "SELECT id, topic, status, created_at FROM jobs ORDER BY id DESC LIMIT 5;"',
     { encoding: 'utf-8', stdio: 'pipe' }
   );
   console.log(result);

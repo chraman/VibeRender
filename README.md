@@ -38,7 +38,7 @@ This will start:
 1. Create a `.env.local` file in `web-app/` directory:
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender_new
 ```
 
 2. Generate and run database migrations:
@@ -93,7 +93,7 @@ The worker will poll the database every 5 seconds for new jobs.
 ### Video Worker (`video-worker/`)
 - `DB_HOST` - Database host (default: localhost)
 - `DB_PORT` - Database port (default: 5432)
-- `DB_NAME` - Database name (default: viberender)
+- `DB_NAME` - Database name (default: viberender_new)
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password (default: postgres)
 - `POLL_INTERVAL` - Polling interval in seconds (default: 5)

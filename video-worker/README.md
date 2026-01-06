@@ -26,7 +26,7 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 # Optional: Database and worker settings
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=viberender
+DB_NAME=viberender_new
 DB_USER=postgres
 DB_PASSWORD=postgres
 POLL_INTERVAL=5

@@ -11,7 +11,7 @@ docker-compose up -d
 
 **Create `.env.local` in `web-app/` folder:**
 ```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/viberender_new
 ```
 
 **Then run:**
