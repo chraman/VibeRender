@@ -39,6 +39,12 @@ export function JobList({ jobs }: Props) {
                   {job.topic}
                 </p>
                 <p className="text-xs text-slate-500">
+                  {job.videoTheme}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {job.emotionalGoal}
+                </p>
+                <p className="text-xs text-slate-500">
                   {new Date(job.createdAt).toLocaleString()}
                 </p>
               </div>

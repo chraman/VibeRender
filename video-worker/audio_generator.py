@@ -79,8 +79,10 @@ class AudioGenerator:
                 'text': script,
                 'model_id': 'eleven_multilingual_v2',
                 'voice_settings': {
-                    'stability': 0.5,
-                    'similarity_boost': 0.7
+                    "stability": 0.35,        # lower = faster, more dynamic
+                    "similarity_boost": 0.65,
+                    "style": 0.6,             # more expressive
+                    "use_speaker_boost": True
                 }
             }
             

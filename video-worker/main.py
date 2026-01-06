@@ -39,9 +39,6 @@ DB_CONFIG = {
 # Polling interval in seconds
 POLL_INTERVAL = Config.POLL_INTERVAL
 
-# Track the last processed job ID to avoid reprocessing
-last_processed_id = 0
-
 # Test mode flag - when True, uses test assets instead of generating new ones
 TEST_MODE = False
 
@@ -56,99 +53,69 @@ def get_db_connection():
 
 def get_all_jobs_summary(cursor: RealDictCursor) -> Dict[str, Any]:
     """
-    Get a summary of all jobs in the database for debugging.
-    
-    Args:
-        cursor: Database cursor
-        
-    Returns:
-        Dictionary with job counts by status
+    Get aggregated job counts by status (debugging/monitoring only).
     """
     query = """
-        SELECT status, COUNT(*) as count, MAX(id) as max_id, MIN(id) as min_id
+        SELECT
+            status,
+            COUNT(*) AS job_count
         FROM jobs
         GROUP BY status
     """
     cursor.execute(query)
-    results = cursor.fetchall()
-    
+    rows = cursor.fetchall()
+
     summary = {}
-    for row in results:
-        summary[row['status']] = {
-            'count': row['count'],
-            'max_id': row['max_id'],
-            'min_id': row['min_id']
+    for row in rows:
+        summary[row["status"]] = {
+            "count": row["job_count"]
         }
-    
+
     return summary
 
 
-def get_pending_jobs(cursor: RealDictCursor, last_id: int) -> list[Dict[str, Any]]:
+def get_pending_jobs(cursor: RealDictCursor) -> list[Dict[str, Any]]:
     """
-    Fetch new pending jobs from the database that haven't been processed yet.
-    
-    Args:
-        cursor: Database cursor with RealDictCursor for dict-like results
-        last_id: The last processed job ID to avoid reprocessing
-        
-    Returns:
-        List of job dictionaries
+    Fetch pending jobs with channel context.
+    Uses row-level locking to avoid double processing.
     """
-    logger.debug(f'Querying for pending jobs with id > {last_id} AND status = "pending"')
-    
-    # First, get summary of all jobs for debugging
-    summary = get_all_jobs_summary(cursor)
-    if summary:
-        logger.debug(f'📊 Database job summary: {summary}')
-    
     query = """
-        SELECT id, topic, status, created_at
-        FROM jobs
-        WHERE id > %s AND status = 'pending'
-        ORDER BY id ASC
-        LIMIT 10
+        SELECT
+            j.id,
+            j.topic,
+            j.video_theme,
+            j.emotional_goal,
+            j.pacing,
+            j.status,
+            j.created_at,
+            j.channel_id,
+            c.name AS channel_name,
+            c.category,
+            c.sub_niche
+        FROM jobs j
+        JOIN channels c ON c.id = j.channel_id
+        WHERE j.status = 'pending'
+        ORDER BY j.created_at ASC
+        LIMIT 5
+        FOR UPDATE SKIP LOCKED
     """
-    cursor.execute(query, (last_id,))
-    jobs = cursor.fetchall()
-    
-    if jobs:
-        logger.info(f'✅ Found {len(jobs)} pending job(s): {[j["id"] for j in jobs]}')
-        for job in jobs:
-            logger.info(f'   - Job {job["id"]}: "{job["topic"]}" (created: {job["created_at"]})')
-    else:
-        # Check if there are any pending jobs at all (for debugging)
-        check_query = "SELECT COUNT(*) as count FROM jobs WHERE status = 'pending'"
-        cursor.execute(check_query)
-        pending_count = cursor.fetchone()['count']
-        if pending_count > 0:
-            logger.warning(f'⚠️  There are {pending_count} pending job(s) in database, but none match id > {last_processed_id}')
-            # Show the pending jobs that are being skipped
-            show_query = "SELECT id, topic, created_at FROM jobs WHERE status = 'pending' ORDER BY id"
-            cursor.execute(show_query)
-            skipped_jobs = cursor.fetchall()
-            logger.warning(f'   Pending jobs being skipped: {[{"id": j["id"], "topic": j["topic"]} for j in skipped_jobs]}')
-        else:
-            logger.debug(f'No pending jobs in database')
-    
-    return jobs
+    cursor.execute(query)
+    return cursor.fetchall()
 
 
-def update_job_status(cursor: RealDictCursor, job_id: int, status: str):
+def update_job_status(cursor: RealDictCursor, job_id: str, status: str):
     """
-    Update the status of a job in the database.
-    
-    Args:
-        cursor: Database cursor
-        job_id: The ID of the job to update
-        status: New status ('processing', 'completed', 'failed')
+    Update job status safely.
     """
-    logger.info(f'Updating job {job_id} status to: {status}')
-    query = """
+    cursor.execute(
+        """
         UPDATE jobs
-        SET status = %s, updated_at = NOW()
+        SET status = %s,
+            updated_at = NOW()
         WHERE id = %s
-    """
-    cursor.execute(query, (status, job_id))
+        """,
+        (status, job_id)
+    )
 
 
 def process_job(job: Dict[str, Any], cursor: RealDictCursor):
@@ -167,15 +134,17 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
     topic = job['topic']
     created_at = job.get('created_at', 'unknown')
     
-    logger.info('=' * 60)
-    logger.info(f'🎬 STARTING JOB PROCESSING')
-    logger.info(f'   Job ID: {job_id}')
-    logger.info(f'   Topic: {topic}')
-    logger.info(f'   Created: {created_at}')
-    logger.info('=' * 60)
+    logger.info("=" * 60)
+    logger.info("🎬 STARTING JOB PROCESSING")
+    logger.info(f"   Job ID: {job_id}")
+    logger.info(f"   Topic: {job['topic']}")
+    logger.info(f"   Channel: {job['channel_name']} ({job['category']} / {job['sub_niche']})")
+    logger.info(f"   Created: {job.get('created_at')}")
+    logger.info("=" * 60)
     
     # Update job status to 'processing'
     update_job_status(cursor, job_id, 'processing')
+    cursor.connection.commit()
     logger.info(f'✅ Job {job_id} status updated to: processing')
     
     try:
@@ -233,7 +202,7 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
             # Generate assets (script, audio, and images)
             logger.info(f'📦 Starting asset generation for job {job_id}...')
             
-            assets = generate_assets(job_id, topic)
+            assets = generate_assets(job_id, job)
             
             elapsed_time = time.time() - start_time
             logger.info(f'✅ Asset generation completed in {elapsed_time:.2f} seconds')
@@ -294,7 +263,6 @@ def main():
     """
     Main polling loop that continuously checks for new jobs.
     """
-    global last_processed_id
     
     # Validate configuration before starting
     logger.info('🔍 Validating configuration...')
@@ -340,7 +308,6 @@ def main():
     logger.info(f'   Polling interval: {POLL_INTERVAL} seconds')
     logger.info(f'   Database: {DB_CONFIG["database"]}@{DB_CONFIG["host"]}:{DB_CONFIG["port"]}')
     logger.info(f'   Assets directory: {Config.TEMP_ASSETS_DIR}')
-    logger.info(f'   Last processed job ID: {last_processed_id}')
     logger.info('=' * 60)
     logger.info('⏳ Starting polling loop...')
     logger.info('   Press Ctrl+C to stop\n')
@@ -357,7 +324,7 @@ def main():
                 # Use RealDictCursor to get results as dictionaries
                 with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                     # Fetch pending jobs
-                    jobs = get_pending_jobs(cursor, last_processed_id)
+                    jobs = get_pending_jobs(cursor)
                     
                     if jobs:
                         logger.info(f'\n🔔 Poll #{poll_count} [{current_time}]: Found {len(jobs)} new job(s)')
@@ -366,9 +333,6 @@ def main():
                         for job in jobs:
                             try:
                                 process_job(job, cursor)
-                                # Update last processed ID
-                                last_processed_id = max(last_processed_id, job['id'])
-                                logger.info(f'📝 Updated last processed job ID to: {last_processed_id}')
                             except Exception as e:
                                 logger.error(f'❌ Error processing job {job["id"]}: {e}', exc_info=True)
                                 # Mark job as failed
@@ -383,7 +347,6 @@ def main():
                     else:
                         # Show polling activity every 10 polls to indicate it's working
                         if poll_count % 10 == 0:
-                            logger.info(f'⏳ Poll #{poll_count} [{current_time}]: No new jobs (last processed: {last_processed_id})')
                             # Every 10 polls, show database summary for debugging
                             try:
                                 summary = get_all_jobs_summary(cursor)

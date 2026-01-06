@@ -19,7 +19,7 @@ class Config:
     # Database Configuration
     DB_HOST: str = os.getenv('DB_HOST', 'localhost')
     DB_PORT: str = os.getenv('DB_PORT', '5432')
-    DB_NAME: str = os.getenv('DB_NAME', 'viberender')
+    DB_NAME: str = os.getenv('DB_NAME', 'viberender_new')
     DB_USER: str = os.getenv('DB_USER', 'postgres')
     DB_PASSWORD: str = os.getenv('DB_PASSWORD', 'postgres')
     

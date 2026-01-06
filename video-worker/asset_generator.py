@@ -42,14 +42,20 @@ class AssetGenerator:
         self.image_generator = ImageGenerator(self.gemini_client, self.temp_assets_dir)
         
         logger.info('✅ AssetGenerator initialized')
-    
-    def generate_assets(self, job_id: int, topic: str) -> Dict[str, str]:
+
+    def normalize_narration(self, text: str) -> str:
+        text = text.replace("...", ".")
+        text = text.replace("—", ",")
+        text = text.replace("  ", " ")
+        return text.strip()
+
+    def generate_assets(self, job_id: int, job: Dict[str, Any]) -> Dict[str, str]:
         """
         Generate all assets for a video job (script, audio, and images).
         
         Args:
             job_id: The job ID to use for organizing assets
-            topic: The topic for the video
+            topic: The job for the video
             
         Returns:
             Dictionary with paths to generated assets:
@@ -71,13 +77,13 @@ class AssetGenerator:
         narration_path = job_dir / 'narrator_only.txt'
         audio_path = job_dir / 'audio.mp3'
         
-        logger.info(f'📝 Step 1/3: Generating script (includes narration and visual prompts) for topic: "{topic}"')
+        logger.info(f'📝 Step 1/3: Generating script (includes narration and visual prompts) for topic: "{job['topic']}"')
         
         # Generate script (now returns JSON structure)
-        script_data = self.script_generator.generate_script(topic)
+        script_data = self.script_generator.generate_script(job)
         
         # Extract components from JSON response
-        narration = script_data['narration']
+        narration = self.normalize_narration(script_data['narration'])
         visual_prompts = script_data['visual_prompts']
         audio_vibe = script_data.get('audio_vibe', '')
         
@@ -127,16 +133,16 @@ class AssetGenerator:
         }
 
 
-def generate_assets(job_id: int, topic: str) -> Dict[str, str]:
+def generate_assets(job_id: int, job: Dict[str, Any]) -> Dict[str, str]:
     """
     Convenience function to generate assets for a job.
     
     Args:
         job_id: The job ID
-        topic: The topic for the video
+        job: The job for the video
         
     Returns:
         Dictionary with paths to generated assets
     """
     generator = AssetGenerator()
-    return generator.generate_assets(job_id, topic)
+    return generator.generate_assets(job_id, job)

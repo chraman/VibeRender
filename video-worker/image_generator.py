@@ -30,97 +30,13 @@ class ImageGenerator:
         self.temp_assets_dir = pathlib.Path(temp_assets_dir)
         logger.debug('🖼️  ImageGenerator initialized')
     
-    def generate_image_prompts(self, script: str) -> List[str]:
-        """
-        Generate 3 specific image prompts for scenes using Google Gemini.
-        
-        Args:
-            script: The video script to generate image prompts for
-            
-        Returns:
-            List of 3 image prompt strings
-            
-        Raises:
-            Exception: If image prompt generation fails
-        """
-        max_retries = 1
-        retry_count = 0
-        
-        # Construct the prompt to generate image descriptions
-        prompt = (
-            'You are a visual content creator. Based on the following video script, '
-            'create exactly 3 specific, detailed image prompts for key scenes. '
-            'Each prompt should be a single line describing a visual scene that would work '
-            'for a short-form video. Make them vivid, specific, and suitable for AI image generation.\n\n'
-            f'Video Script:\n{script}\n\n'
-            'Provide exactly 3 image prompts, one per line. Each prompt should be a complete '
-            'visual description without numbering or labels.'
+    def normalize_image_prompt(self, prompt: str) -> str:
+        return (
+            f"{prompt}, vertical 9:16, portrait orientation, "
+            f"cinematic framing, subject centered, safe margins, "
+            f"no borders, no distortion, sharp focus, high detail"
         )
-        
-        while retry_count <= max_retries:
-            try:
-                logger.info(f'🖼️  Generating image prompts with Gemini (attempt {retry_count + 1}/{max_retries + 1})...')
-                
-                generation_config = {
-                    'temperature': 0.7,
-                    'max_output_tokens': 300
-                }
-                start_time = time.time()
-                
-                response = self.gemini_model.generate_content(
-                    prompt,
-                    generation_config=generation_config
-                )
-                
-                elapsed_time = time.time() - start_time
-                result_text = response.text.strip()
-                
-                logger.info(f'✅ Image prompts generated in {elapsed_time:.2f} seconds')
-                
-                # Parse the response to extract individual prompts
-                # Split by newlines and filter out empty lines
-                prompts = [line.strip() for line in result_text.split('\n') if line.strip()]
-                
-                # Remove any numbering or bullet points
-                prompts = [p.lstrip('0123456789.-) ').strip() for p in prompts]
-                
-                # Take first 3 prompts
-                prompts = prompts[:3]
-                
-                if len(prompts) < 3:
-                    logger.warning(f'⚠️  Only got {len(prompts)} prompts, expected 3')
-                    # If we got fewer than 3, pad with generic prompts
-                    while len(prompts) < 3:
-                        prompts.append(f'Scene from video about the topic')
-                
-                logger.debug(f'   Generated {len(prompts)} image prompts')
-                for i, prompt_text in enumerate(prompts, 1):
-                    logger.debug(f'   Prompt {i}: {prompt_text[:60]}...')
-                
-                return prompts
-                
-            except Exception as e:
-                error_str = str(e).lower()
-                is_rate_limit = (
-                    '429' in error_str or 
-                    'rate limit' in error_str or 
-                    'quota' in error_str or
-                    'resource exhausted' in error_str
-                )
-                
-                if is_rate_limit and retry_count < max_retries:
-                    retry_count += 1
-                    logger.warning(f'⚠️  Rate limit hit. Waiting 10 seconds before retry {retry_count}/{max_retries}...')
-                    time.sleep(10)
-                    continue
-                else:
-                    if is_rate_limit:
-                        logger.error(f'❌ Rate limit exceeded after {max_retries} retry(ies)')
-                        raise Exception(f'Failed to generate image prompts: Rate limit exceeded after {max_retries} retry(ies)')
-                    else:
-                        logger.error(f'❌ Gemini API error: {str(e)}')
-                        raise Exception(f'Failed to generate image prompts with Gemini: {str(e)}')
-    
+
     def download_image(self, prompt: str, job_id: int, scene_index: int) -> str:
         """
         Download an image from Pollinations.ai based on a prompt.
@@ -141,12 +57,13 @@ class ImageGenerator:
             random_seed = random.randint(1, 1000000)
             
             # Encode the prompt for URL
+            final_prompt = self.normalize_image_prompt(prompt)
             encoded_prompt = quote(prompt)
             
             # Construct the Pollinations.ai URL
             image_url = (
                 f'https://image.pollinations.ai/prompt/{encoded_prompt}'
-                f'?width=1024&height=1024&nologo=true&seed={random_seed}'
+                f'?width=1080&height=1920&nologo=true&seed={random_seed}'
             )
             
             logger.debug(f'   Downloading image from: {image_url[:80]}...')
