@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createJob, getAllJobs } from './actions/jobs';
+// import { createJob, getAllJobs } from './actions/jobs';
 
 type Job = {
   id: number;
@@ -20,63 +20,63 @@ export default function Home() {
 
   // Load jobs on mount and refresh periodically
   useEffect(() => {
-    loadJobs();
+    // loadJobs();
     // Refresh jobs every 3 seconds to see status updates
-    const interval = setInterval(loadJobs, 3000);
-    return () => clearInterval(interval);
+    // const interval = setInterval(loadJobs, 3000);
+    // return () => clearInterval(interval);
   }, []);
 
-  async function loadJobs() {
-    console.log('[FRONTEND] Loading jobs...');
-    const startTime = Date.now();
-    const result = await getAllJobs();
-    const elapsedTime = Date.now() - startTime;
+  // async function loadJobs() {
+  //   console.log('[FRONTEND] Loading jobs...');
+  //   const startTime = Date.now();
+  //   const result = await getAllJobs();
+  //   const elapsedTime = Date.now() - startTime;
     
-    if (result.success && result.jobs) {
-      console.log(`[FRONTEND] ✅ Loaded ${result.jobs.length} job(s) in ${elapsedTime}ms`);
-      setJobs(result.jobs);
-    } else {
-      console.error(`[FRONTEND] ❌ Failed to load jobs: ${result.error}`);
-    }
-    setIsLoadingJobs(false);
-  }
+  //   if (result.success && result.jobs) {
+  //     console.log(`[FRONTEND] ✅ Loaded ${result.jobs.length} job(s) in ${elapsedTime}ms`);
+  //     setJobs(result.jobs);
+  //   } else {
+  //     console.error(`[FRONTEND] ❌ Failed to load jobs: ${result.error}`);
+  //   }
+  //   setIsLoadingJobs(false);
+  // }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const startTime = Date.now();
-    console.log('[FRONTEND] Form submitted');
-    console.log(`  Topic: "${topic}"`);
-    console.log(`  Timestamp: ${new Date().toISOString()}`);
+  // async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  //   e.preventDefault();
+  //   const startTime = Date.now();
+  //   console.log('[FRONTEND] Form submitted');
+  //   console.log(`  Topic: "${topic}"`);
+  //   console.log(`  Timestamp: ${new Date().toISOString()}`);
     
-    setIsSubmitting(true);
-    setMessage(null);
+  //   setIsSubmitting(true);
+  //   setMessage(null);
 
-    try {
-      console.log('[FRONTEND] Calling createJob server action...');
-      const result = await createJob(topic);
-      const elapsedTime = Date.now() - startTime;
+  //   try {
+  //     console.log('[FRONTEND] Calling createJob server action...');
+  //     const result = await createJob(topic);
+  //     const elapsedTime = Date.now() - startTime;
       
-      if (result.success) {
-        console.log(`[FRONTEND] ✅ Job created successfully in ${elapsedTime}ms`);
-        console.log(`  Job ID: ${result.job?.id}`);
-        console.log(`  Status: ${result.job?.status}`);
-        setMessage({ type: 'success', text: `Video job created for: ${result.job?.topic}` });
-        setTopic('');
-        // Reload jobs to show the new one
-        console.log('[FRONTEND] Reloading jobs list...');
-        await loadJobs();
-      } else {
-        console.error(`[FRONTEND] ❌ Job creation failed: ${result.error}`);
-        setMessage({ type: 'error', text: result.error || 'Failed to create job' });
-      }
-    } catch (error) {
-      const elapsedTime = Date.now() - startTime;
-      console.error(`[FRONTEND] ❌ Unexpected error (${elapsedTime}ms):`, error);
-      setMessage({ type: 'error', text: 'An unexpected error occurred' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
+  //     if (result.success) {
+  //       console.log(`[FRONTEND] ✅ Job created successfully in ${elapsedTime}ms`);
+  //       console.log(`  Job ID: ${result.job?.id}`);
+  //       console.log(`  Status: ${result.job?.status}`);
+  //       setMessage({ type: 'success', text: `Video job created for: ${result.job?.topic}` });
+  //       setTopic('');
+  //       // Reload jobs to show the new one
+  //       console.log('[FRONTEND] Reloading jobs list...');
+  //       await loadJobs();
+  //     } else {
+  //       console.error(`[FRONTEND] ❌ Job creation failed: ${result.error}`);
+  //       setMessage({ type: 'error', text: result.error || 'Failed to create job' });
+  //     }
+  //   } catch (error) {
+  //     const elapsedTime = Date.now() - startTime;
+  //     console.error(`[FRONTEND] ❌ Unexpected error (${elapsedTime}ms):`, error);
+  //     setMessage({ type: 'error', text: 'An unexpected error occurred' });
+  //   } finally {
+  //     setIsSubmitting(false);
+  //   }
+  // }
 
   function getStatusColor(status: string) {
     switch (status) {
@@ -109,7 +109,7 @@ export default function Home() {
             AI-powered YouTube automation SaaS. Generate videos from any topic.
           </p>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 w-full max-w-md">
+          <form  className="flex flex-col gap-4 w-full max-w-md">
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="topic"

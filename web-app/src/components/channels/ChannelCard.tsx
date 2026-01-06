@@ -1,18 +1,25 @@
-export default function CreateChannelPage() {
+import type { Channel } from "@/lib/db/schema/channels";
+
+interface Props {
+  channel: Channel;
+}
+
+export function ChannelCard({ channel }: Props) {
   return (
-    <div className="max-w-md">
-      <h1 className="text-xl font-semibold mb-4">
-        Create / Link Channel
-      </h1>
+    <div className="group relative rounded-xl border bg-white p-6 shadow-sm transition hover:shadow-md">
+      <h3 className="mb-2 text-lg font-medium text-slate-900">
+        {channel.name}
+      </h3>
 
-      <input
-        placeholder="Channel Name"
-        className="border p-2 w-full mb-4"
-      />
+      <p className="text-xs text-slate-500 break-all">
+        Channel ID
+      </p>
+      <p className="text-sm text-slate-600 break-all">
+        {channel.id}
+      </p>
 
-      <button className="bg-black text-white px-4 py-2 rounded">
-        Save
-      </button>
+      {/* Hover action hint */}
+      <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-transparent group-hover:ring-slate-200" />
     </div>
   );
 }
