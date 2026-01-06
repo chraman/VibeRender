@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createChannel, getUserChannels } from "@/lib/db/queries/channels";
 
 export async function POST(req: NextRequest) {
-  const { name } = await req.json();
-  const newChannel = await createChannel(name);
+  const json = await req.json();
+  const newChannel = await createChannel(json);
   return NextResponse.json(newChannel);
 }
 

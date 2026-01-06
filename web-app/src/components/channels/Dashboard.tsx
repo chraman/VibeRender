@@ -12,17 +12,20 @@ interface Props {
 export default function Dashboard({ channels: initialChannels }: Props) {
   const [channels, setChannels] = useState(initialChannels);
 
-  const handleCreateChannel = async (name: string) => {
-    const res = await fetch("/api/channels", {
+  const handleCreateChannel = async (draft: any) => {
+   const res = await fetch("/api/channels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({userId: "3f29239d-5a72-472c-bc31-7c9af1d606ce", ...draft}),
     });
 
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.error("Failed to create channel");
+      return;
+    }
 
-    const newChannel: Channel = await res.json();
-    setChannels((prev) => [newChannel, ...prev]);
+    const channel = await res.json();
+    setChannels((prev) => [channel, ...prev]);
   };
 
   return (

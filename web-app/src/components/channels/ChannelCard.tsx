@@ -12,10 +12,16 @@ export function ChannelCard({ channel }: Props) {
       </h3>
 
       <p className="text-xs text-slate-500 break-all">
-        Channel ID
+        Category
       </p>
       <p className="text-sm text-slate-600 break-all">
-        {channel.id}
+        {channel.category}
+      </p>      
+      <p className="text-xs text-slate-500 break-all">
+        Sub Niche
+      </p>
+      <p className="text-sm text-slate-600 break-all">
+        {channel.subNiche}
       </p>
 
       {/* Hover action hint */}
