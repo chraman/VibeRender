@@ -29,7 +29,7 @@ export default function Dashboard({ channels: initialChannels }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-8 py-6">
+    <div className="min-h-screen bg-slate-50 px-8 py-4">
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
