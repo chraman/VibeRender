@@ -40,7 +40,7 @@ DB_CONFIG = {
 POLL_INTERVAL = Config.POLL_INTERVAL
 
 # Test mode flag - when True, uses test assets instead of generating new ones
-TEST_MODE = False
+TEST_MODE = True
 
 
 def get_db_connection():
@@ -159,7 +159,7 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
             test_dir.mkdir(parents=True, exist_ok=True)
             
             # Read script from file
-            script_path = test_dir / 'script.txt'
+            script_path = test_dir / 'narrator_only.txt'
             if not script_path.exists():
                 raise FileNotFoundError(f'Test script not found: {script_path}')
             
