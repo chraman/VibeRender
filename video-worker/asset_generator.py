@@ -7,7 +7,7 @@ import os
 import json
 import logging
 import pathlib
-from typing import Dict
+from typing import Dict, Any
 from config import Config
 from api_clients import GeminiClient, ElevenLabsClient
 from script_generator import ScriptGenerator

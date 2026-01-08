@@ -193,12 +193,13 @@ class ScriptGenerator:
             - Scene 3–5 correspond to PART 2 (tension visuals)
             - Scene 6–8 correspond to PART 3 (payoff visuals)
 
-            Each visual prompt must:
-            - Be vertical (9:16), portrait orientation
-            - Be cinematic and high-contrast
-            - Clearly differ from the previous visual
-            - Mention camera angle or framing when possible
-            - Avoid text overlays or captions
+            VISUAL PROMPT RULES (FOR DREAMSHAPER XL TURBO):
+            Each visual prompt must follow this technical structure:
+            1. CORE SUBJECT: Define a consistent character/object description to use in ALL scenes (e.g., "The same monk with a silver beard").
+            2. ENVIRONMENT & LIGHTING: Specify "Cinematic lighting," "God rays," or "Neon cyberpunk glow."
+            3. CAMERA: Specify "Low angle," "Close-up portrait," or "Wide panoramic."
+            4. STYLE WRAPPERS: Always include: "masterpiece, 8k, highly detailed, sharp focus, anatomically correct."
+            5. NO DISTORTION: Explicitly avoid mentioning "text," "signatures," or "extra limbs."
 
             AUDIO DELIVERY:
             - Slightly faster than normal narration
@@ -217,13 +218,13 @@ class ScriptGenerator:
             {{
             "narration": "Full narration text only",
             "visual_prompts": [
-                "Visual prompt 1",
-                "Visual prompt 2",
-                "Visual prompt 3",
-                "Visual prompt 4",
-                "Visual prompt 5",
-                "Visual prompt 6",
-                "Visual prompt 7"
+                "Scene 1: Hook Subject, close-up, [Style Wrappers]",
+                "Scene 2: Hook Subject, different angle, [Style Wrappers]",
+                "Scene 3: Tension Subject, environment shift, [Style Wrappers]",
+                "Scene 4: Tension Subject, action shot, [Style Wrappers]",
+                "Scene 5: Tension Subject, macro detail, [Style Wrappers]",
+                "Scene 6: Payoff Subject, epic wide shot, [Style Wrappers]",
+                "Scene 7: Payoff Subject, final mysterious look, [Style Wrappers]"
             ],
             "audio_vibe": "Short description of tone and pacing"
             }}
