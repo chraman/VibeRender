@@ -1,3 +1,4 @@
+import numpy as np
 import os
 import io
 import torch
@@ -11,7 +12,9 @@ from contextlib import asynccontextmanager
 from pyngrok import ngrok
 from diffusers import AutoPipelineForText2Image
 from TTS.api import TTS
+import re
 from pydub import AudioSegment
+from pydub.effects import strip_silence
 from urllib.parse import unquote
 
 # --- PRE-FLIGHT CONFIG ---
@@ -81,56 +84,82 @@ async def generate_image(prompt: str, seed: int = 42):
     image.save(buf, format="JPEG")
     return Response(content=buf.getvalue(), media_type="image/jpeg")
 
+
 @app.get("/generate-audio")
-async def generate_audio(text: str, lang: str = "en", speaker_wav: str = "/kaggle/working/sample.wav"):
-    """Generates audio with hallucination fixes and automatic silence/noise trimming."""
-    text = unquote(text).strip()
+async def generate_audio(text: str, effect: str = "ambient", lang: str = "en", speaker_wav: str = "/kaggle/working/sample.wav"):
+    decoded_text = unquote(text).strip()
     
-    # Safety punctuation
-    if not text.endswith(('.', '!', '?', '_')):
-        text += "_"
+    # 1. DYNAMIC SENTENCE SPLITTING
+    # This splits by . ! or ? while keeping the punctuation
+    sentences = re.split(r'(?<=[.!?]) +', decoded_text)
 
-    if not os.path.exists(speaker_wav):
-        return Response(content=f"Error: {speaker_wav} not found.", status_code=404)
+    combined_voice = AudioSegment.empty()
+    
+    for sentence in sentences:
+        if not sentence.strip(): continue
 
-    # 1. Generate the raw audio
-    wav = models["tts"].tts(
-        text=text, 
-        speaker_wav=speaker_wav, 
-        language=lang,
-        temperature=0.6,           
-        repetition_penalty=2.0
-    )
-    
-    # 2. Convert to Pydub AudioSegment
-    import numpy as np
-    wav_norm = np.array(wav) * (32767 / max(0.01, np.max(np.abs(wav))))
-    audio = AudioSegment(
-        data=wav_norm.astype(np.int16).tobytes(), 
-        sample_width=2, 
-        frame_rate=24000, 
-        channels=1
-    )
-    
-    # 3. THE FIX: Detect and Trim Trailing Silence/Gibberish
-    # This looks for anything quieter than -40dBFS and cuts it from the end
-    from pydub.effects import strip_silence
-    
-    # We apply it specifically to the end to avoid cutting natural pauses in speech
-    # padding=100 keeps 100ms of natural "air" at the end so it doesn't sound clipped
-    audio = strip_silence(
-        audio, 
-        silence_thresh=-40, 
-        chunk_size=10, 
-        padding=100
-    )
+        import torch
+        import gc
+        
+        # Inside the loop:
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        # 1. Generate the sentence
+        wav = models["tts"].tts(text=sentence, speaker_wav=speaker_wav, language=lang, temperature=0.4)
+        
+        # 2. Convert to Pydub
+        wav_norm = np.array(wav) * (32767 / max(0.01, np.max(np.abs(wav))))
+        clip = AudioSegment(data=wav_norm.astype(np.int16).tobytes(), sample_width=2, frame_rate=24000, channels=1)
+        
+        # 3. DOUBLE-ENDED TRIMMING (Crucial Fix)
+        # We trim silence from the START and the END of the clip to remove the 3-4s gibberish
+        # We use a more aggressive -50dB threshold
+        from pydub.effects import strip_silence
 
-    # 4. Export to MP3
+        # Increase threshold to -55 (very sensitive)
+        # 'seek_step=1' makes the search more precise
+        clip = strip_silence(clip, silence_thresh=-55, padding=50)
+        
+        # FORCE trim the first 20ms of every clip 
+        # This physically deletes the "eh" or "click" sound XTTS often starts with
+        if len(clip) > 100:
+            clip = clip[20:]
+        
+        # 4. MICRO FADES
+        # Fade in/out by 50ms to kill any sudden digital pops or clicks
+        clip = clip.fade_in(50).fade_out(50)
+        
+        # 5. Build the track with a fixed pause
+        # Instead of: combined_voice += clip + AudioSegment.silent(duration=400)
+        # Use this:
+        if len(combined_voice) == 0:
+            combined_voice = clip
+        else:
+            # This overlaps the new sentence by 100ms with the previous one
+            # effectively "shaving off" the dead air
+            combined_voice = combined_voice.append(clip, crossfade=100)
+
+
+    # 4. MIX WITH DYNAMIC BACKGROUND
+    sfx_path = f"/kaggle/working/{effect}.mp3"
+    if os.path.exists(sfx_path):
+        bg = AudioSegment.from_file(sfx_path) - 25 # Music is much quieter
+        
+        # Loop music to fit total voice length
+        if len(bg) < len(combined_voice):
+            bg = bg * (int(len(combined_voice) / len(bg)) + 1)
+        
+        bg = bg[:len(combined_voice)].fade_out(1500)
+        final_audio = bg.overlay(combined_voice)
+    else:
+        final_audio = combined_voice
+
+    # 5. EXPORT
     buf = io.BytesIO()
-    audio.export(buf, format="mp3", bitrate="192k")
-    
-    logger.info(f"✅ Audio processed and trimmed for text: {text[:30]}...")
+    final_audio.export(buf, format="mp3", bitrate="192k")
     return Response(content=buf.getvalue(), media_type="audio/mpeg")
+
 
 # --- SERVER START ---
 

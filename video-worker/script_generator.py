@@ -206,6 +206,11 @@ class ScriptGenerator:
             - Minimal pauses
             - Confident and engaging
             - Not slow, not overly dramatic
+            
+            AUDIO VIBE CATEGORIES:
+            - You MUST choose EXACTLY one of these vibes for the "audio_vibe" field: 
+              [cosmic, epic, horror]
+            - Choose the vibe that best matches the script's emotional goal.
 
             OUTPUT FORMAT (STRICT):
             - Return ONLY valid JSON
@@ -226,7 +231,7 @@ class ScriptGenerator:
                 "Scene 6: Payoff Subject, epic wide shot, [Style Wrappers]",
                 "Scene 7: Payoff Subject, final mysterious look, [Style Wrappers]"
             ],
-            "audio_vibe": "Short description of tone and pacing"
+            "audio_vibe": "horror"
             }}
             """.strip()
 
