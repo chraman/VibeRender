@@ -50,7 +50,7 @@ class ImageGenerator:
 
             prompt = self.normalize_image_prompt(prompt)
             encoded_prompt = quote(prompt)
-            image_url = f"{self.kaggle_url}/generate?prompt={encoded_prompt}&seed={random_seed}"
+            image_url = f"{self.kaggle_url}/generate-image?prompt={encoded_prompt}&seed={random_seed}"
             
             headers = {
                 "ngrok-skip-browser-warning": "true",
