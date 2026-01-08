@@ -1,35 +1,73 @@
-import numpy as np
 import os
 import io
-import torch
+import re
+import logging
 import asyncio
+import torch
+import numpy as np
 import nest_asyncio
 import uvicorn
-import logging
+import noisereduce as nr
+from urllib.parse import unquote
+from contextlib import asynccontextmanager
+
+# FastAPI & Network
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 from pyngrok import ngrok
+
+# ML & Audio Processing
 from diffusers import AutoPipelineForText2Image
 from TTS.api import TTS
-import re
 from pydub import AudioSegment
-from pydub.effects import strip_silence
-from urllib.parse import unquote
+from pydub.effects import normalize, compress_dynamic_range, strip_silence
 
-# --- PRE-FLIGHT CONFIG ---
-# 1. Automatically accept Coqui TOS for headless environment
-os.environ["COQUI_TOS_AGREED"] = "1"
+# --- CONFIGURATION & CONSTANTS ---
 
-# 2. Patch the event loop for Jupyter/Kaggle
-nest_asyncio.apply()
+# Environment Setup
+os.environ["COQUI_TOS_AGREED"] = "1"  # Automatically accept Coqui TOS
+nest_asyncio.apply()  # Patch event loop for Jupyter/Kaggle
 
-# 3. Setup logging
+# Logging Setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("KaggleServer")
 
-# --- MODEL HOLDER & LIFESPAN ---
+# Constants
+NGROK_TOKEN = "37vraVxV1TunmyLhSBA7H7ryytC_2U3FfH5E2t4oyrijUUCwX"
+SILENCE_GAP = AudioSegment.silent(duration=300)  # Slightly longer for natural breath
+MAX_CHARS = 200  # XTTS stability threshold
+SPEAKER_WAV_DEFAULT = "/kaggle/working/sample_cleaned.wav"
+SFX_DIR = "/kaggle/working"
+
+# Global Model Holder
 models = {}
+
+# --- HELPER FUNCTIONS ---
+
+def clean_text(text: str) -> str:
+    """Sanitizes text for TTS stability."""
+    text = unquote(text).strip()
+    # Replace symbols that confuse XTTS
+    text = text.replace("&", " and ").replace("%", " percent ")
+    text = re.sub(r'\s+', ' ', text)
+    return text
+
+def smart_split(text: str) -> list[str]:
+    """Splits text by punctuation AND length to prevent model instability."""
+    # Split by . ! ? or , (commas help keep chunks manageable)
+    tokens = re.split(r'(?<=[.!?]) +|(?<=,) +', text)
+    final_sentences = []
+    
+    for t in tokens:
+        if len(t) > MAX_CHARS:
+            # Further split long run-on sentences by space
+            sub_parts = [t[i:i+MAX_CHARS] for i in range(0, len(t), MAX_CHARS)]
+            final_sentences.extend(sub_parts)
+        else:
+            final_sentences.append(t)
+    return final_sentences
+
+# --- LIFESPAN MANAGER ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +95,7 @@ async def lifespan(app: FastAPI):
     models.clear()
 
 # --- APP INITIALIZATION ---
+
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
@@ -84,92 +123,83 @@ async def generate_image(prompt: str, seed: int = 42):
     image.save(buf, format="JPEG")
     return Response(content=buf.getvalue(), media_type="image/jpeg")
 
-
 @app.get("/generate-audio")
-async def generate_audio(text: str, effect: str = "ambient", lang: str = "en", speaker_wav: str = "/kaggle/working/sample.wav"):
-    decoded_text = unquote(text).strip()
+async def generate_audio(text: str, effect: str = "ambient", lang: str = "en", speaker_wav: str = SPEAKER_WAV_DEFAULT):
+    decoded_text = clean_text(text)
+    sentences = smart_split(decoded_text)
     
-    # 1. DYNAMIC SENTENCE SPLITTING
-    # This splits by . ! or ? while keeping the punctuation
-    sentences = re.split(r'(?<=[.!?]) +', decoded_text)
-
-    combined_voice = AudioSegment.empty()
+    audio_chunks = []
     
-    for sentence in sentences:
-        if not sentence.strip(): continue
+    with torch.inference_mode():
+        for sentence in sentences:
+            if len(sentence.strip()) < 2: continue
 
-        import torch
-        import gc
-        
-        # Inside the loop:
-        torch.cuda.empty_cache()
-        gc.collect()
-        
-        # 1. Generate the sentence
-        wav = models["tts"].tts(text=sentence, speaker_wav=speaker_wav, language=lang, temperature=0.4)
-        
-        # 2. Convert to Pydub
-        wav_norm = np.array(wav) * (32767 / max(0.01, np.max(np.abs(wav))))
-        clip = AudioSegment(data=wav_norm.astype(np.int16).tobytes(), sample_width=2, frame_rate=24000, channels=1)
-        
-        # 3. DOUBLE-ENDED TRIMMING (Crucial Fix)
-        # We trim silence from the START and the END of the clip to remove the 3-4s gibberish
-        # We use a more aggressive -50dB threshold
-        from pydub.effects import strip_silence
+            # PRO FIX 1: The "Ending Underscore" / Period Appending
+            input_text = sentence.strip() + " ."
 
-        # Increase threshold to -55 (very sensitive)
-        # 'seek_step=1' makes the search more precise
-        clip = strip_silence(clip, silence_thresh=-55, padding=50)
-        
-        # FORCE trim the first 20ms of every clip 
-        # This physically deletes the "eh" or "click" sound XTTS often starts with
-        if len(clip) > 100:
-            clip = clip[20:]
-        
-        # 4. MICRO FADES
-        # Fade in/out by 50ms to kill any sudden digital pops or clicks
-        clip = clip.fade_in(50).fade_out(50)
-        
-        # 5. Build the track with a fixed pause
-        # Instead of: combined_voice += clip + AudioSegment.silent(duration=400)
-        # Use this:
-        if len(combined_voice) == 0:
-            combined_voice = clip
-        else:
-            # This overlaps the new sentence by 100ms with the previous one
-            # effectively "shaving off" the dead air
-            combined_voice = combined_voice.append(clip, crossfade=100)
+            wav = models["tts"].tts(
+                text=input_text, 
+                speaker_wav=speaker_wav, 
+                language=lang, 
+                temperature=0.6,          # Lower temp = more stability
+                repetition_penalty=1.8,   # 1.8 is safer than 2.0
+                length_penalty=1.0
+            )
+            
+            # Convert to numpy
+            wav_array = np.array(wav)
+            
+            # PRO FIX 2: Spectral Noise Reduction
+            wav_array = nr.reduce_noise(y=wav_array, sr=24000, prop_decrease=0.8)
+            
+            audio_data = (wav_array * 32767).astype(np.int16)
+            chunk = AudioSegment(data=audio_data.tobytes(), sample_width=2, frame_rate=24000, channels=1)
 
+            # PRO FIX 3: Dynamic Compression
+            chunk = compress_dynamic_range(chunk, threshold=-20.0, ratio=3.0)
 
-    # 4. MIX WITH DYNAMIC BACKGROUND
-    sfx_path = f"/kaggle/working/{effect}.mp3"
+            # Tight surgical trim
+            chunk = strip_silence(chunk, silence_thresh=-42, padding=20)
+            chunk = chunk.fade_in(20).fade_out(20)
+            audio_chunks.append(chunk)
+
+    if not audio_chunks:
+        return Response(status_code=400, content="Failed to generate audio")
+
+    # Efficient Concat
+    combined_voice = audio_chunks[0]
+    for next_chunk in audio_chunks[1:]:
+        combined_voice = combined_voice + SILENCE_GAP + next_chunk
+
+    # Final Leveling
+    combined_voice = normalize(combined_voice)
+
+    # PRO FIX 4: Background Ducking
+    sfx_path = f"{SFX_DIR}/{effect}.mp3"
     if os.path.exists(sfx_path):
-        bg = AudioSegment.from_file(sfx_path) - 25 # Music is much quieter
-        
-        # Loop music to fit total voice length
+        bg = AudioSegment.from_file(sfx_path) - 25 
         if len(bg) < len(combined_voice):
-            bg = bg * (int(len(combined_voice) / len(bg)) + 1)
+            bg = bg * ((len(combined_voice) // len(bg)) + 1)
         
-        bg = bg[:len(combined_voice)].fade_out(1500)
+        # Fade out the background music slightly after the voice ends
+        bg = bg[:len(combined_voice) + 500].fade_out(1500)
         final_audio = bg.overlay(combined_voice)
     else:
         final_audio = combined_voice
 
-    # 5. EXPORT
     buf = io.BytesIO()
     final_audio.export(buf, format="mp3", bitrate="192k")
     return Response(content=buf.getvalue(), media_type="audio/mpeg")
-
 
 # --- SERVER START ---
 
 if __name__ == "__main__":
     # 1. CLEANUP: Kill old tunnels and ports
-    !fuser -k 8000/tcp
+    # Note: Using os.system instead of ! magic command for valid Python syntax
+    os.system("fuser -k 8000/tcp")
     ngrok.kill()
     
     # 2. START NGROK
-    NGROK_TOKEN = "37vraVxV1TunmyLhSBA7H7ryytC_2U3FfH5E2t4oyrijUUCwX"
     ngrok.set_auth_token(NGROK_TOKEN)
     public_url = ngrok.connect(8000).public_url
     print(f"\n🚀 SERVER IS LIVE AT: {public_url}\n")
@@ -177,7 +207,7 @@ if __name__ == "__main__":
     # 3. START UVICORN (The Python 3.12 manual way)
     config = uvicorn.Config(
         app, 
-        host="127.0.0.1", # Matches Ngrok's default private leg
+        host="127.0.0.1", 
         port=8000, 
         loop="asyncio",
         timeout_keep_alive=60
