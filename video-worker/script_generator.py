@@ -32,6 +32,11 @@ class ScriptGenerator:
             2. TWIST: A subtle, "wrong" detail that twists that routine.
             3. PAYOFF: A high-stakes payoff that leaves the viewer breathless.
 
+            TTS PERFORMANCE GUIDELINES:
+            - Use expressive tags in square brackets like [whispering], [sighing], [laughing], or [shouting] to direct the voice.
+            - Use [PAUSE=1s] for dramatic silences.
+            - Use natural punctuation (..., !, ?) to guide the model's native prosody.
+
             REQUIRED OUTPUT STRUCTURE (JSON ONLY):
             {{
                 "character_dna": "Define a consistent physical anchor for the main character (e.g., 'A 5-year-old girl named Lily, raven-black bob hair, pale skin, wearing a tattered teal silk nightgown').",
@@ -59,21 +64,31 @@ class ScriptGenerator:
             contents=prompt,
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(include_thoughts=True),
-                temperature=0.7
+                temperature=1.0
             )
         )
         raw_text = response.text
+        # FIX: Extract text by filtering out "thinking" parts
+        actual_text = ""
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                # If the part has a 'thought' attribute and it's True, skip it
+                if hasattr(part, 'thought') and part.thought:
+                    continue
+                if part.text:
+                    actual_text += part.text
 
-        # 2. CLEAN the text (sometimes Gemini adds ```json ... ``` blocks)
-        clean_json = raw_text.replace("```json", "").replace("```", "").strip()
+        if not actual_text:
+            logger.error("❌ Gemini returned an empty response. Check safety filters.")
+            raise ValueError("Empty response from AI")
 
-        # 3. CONVERT string to dictionary (This is the missing step!)
+        # Clean and parse JSON
         try:
-            data = json.loads(clean_json)
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse AI response: {raw_text}")
-            raise e
-        return data
+            clean_json = actual_text.replace("```json", "").replace("```", "").strip()
+            return json.loads(clean_json)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON. Raw text: {actual_text[:100]}...")
+            raise
 
     def generate_script(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Orchestrates the 2-step generation with thinking-enabled visuals."""

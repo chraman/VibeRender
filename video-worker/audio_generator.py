@@ -4,44 +4,62 @@ import logging
 from pydub import AudioSegment
 from google import genai
 from google.genai import types
-from pydub import AudioSegment
 
-# Replace this with the actual path to where you extracted ffmpeg.exe
-AudioSegment.converter = r"C:\Projects\ffmpeg-2026-01-07-git-af6a1dd0b2-essentials_build\bin\ffmpeg.exe"
+# Define the absolute path to your ffmpeg bin folder
+FFMPEG_PATH = r"C:\Projects\ffmpeg-2026-01-07-git-af6a1dd0b2-essentials_build\bin"
+
+# 1. Update the System Path for the current Python session
+os.environ["PATH"] += os.pathsep + FFMPEG_PATH
+
+# 2. Tell Pydub exactly where the binaries are
+AudioSegment.converter = os.path.join(FFMPEG_PATH, "ffmpeg.exe")
+AudioSegment.ffprobe = os.path.join(FFMPEG_PATH, "ffprobe.exe")
+
 logger = logging.getLogger(__name__)
 
 class AudioGenerator:
-    """Handles audio generation using Gemini 2.5 TTS and exports to MP3."""
+    """Handles audio generation using Gemini 2.5 TTS and mixes with background atmosphere."""
     
     def __init__(self, *args, **kwargs):
-        # Initialize the client (ensure GOOGLE_API_KEY is in your environment)
         self.client = genai.Client()
-        # The -preview suffix is required for the current TTS model
         self.model_id = "gemini-2.5-flash-preview-tts"
+        self.atmosphere_dir = "media"  # Folder where your bg music lives
         logger.info(f'🎤 AudioGenerator initialized (Model: {self.model_id})')
     
-    def _export_to_mp3(self, pcm_data, output_path):
-        """Converts raw 24kHz PCM data from Gemini to MP3 format."""
-        try:
-            # Gemini's native output is raw PCM: 24000Hz, 16-bit, Mono
-            audio = AudioSegment.from_raw(
-                io.BytesIO(pcm_data),
-                sample_width=2,    # 16-bit
-                frame_rate=24000,  # 24kHz
-                channels=1         # Mono
-            )
-            # Export to MP3
-            audio.export(output_path, format="mp3", bitrate="192k")
-        except Exception as e:
-            logger.error(f"Failed to convert PCM to MP3: {e}")
-            raise
+    def _mix_atmosphere(self, voice_segment, vibe):
+        """Internal helper to overlay background music."""
+        bg_path = os.path.join(self.atmosphere_dir, f"{vibe.lower()}.mp3")
+        
+        if not os.path.exists(bg_path):
+            logger.warning(f"⚠️ Atmosphere file {bg_path} not found. Returning raw voice.")
+            return voice_segment
 
-    def generate_audio(self, script: str, output_path: str, voice_name: str = "Aoede") -> None:
-        """Generates MP3 audio from text using Gemini TTS."""
+        try:
+            logger.info(f"⚠️ Atmosphere file {bg_path} found. Returning raw voice.")
+            background = AudioSegment.from_file(bg_path)
+            # Reduce background volume (ducking) so voice is clear
+            background = background - 22 
+            
+            # Overlay music on voice, looping the music if the voice is longer
+            combined = voice_segment.overlay(background, loop=True)
+            # Add a cinematic fade out
+            return combined.fade_out(2000)
+        except Exception as e:
+            logger.error(f"Failed to mix atmosphere: {e}")
+            return voice_segment
+
+    def generate_audio(self, script: str, output_path: str, voice_name: str = "Aoede", vibe: str = None) -> None:
+        """Generates MP3 audio and optionally mixes it with a background vibe."""
         try:
             clean_script = script.strip()
-            
-            # Request configuration for native audio generation
+            # 1. Formatting the prompt to ensure tags are followed
+            # We tell Gemini explicitly to follow the [PAUSE] and [vocal] tags.
+            full_prompt = (
+                "Perform this script as a voice actor. Follow all instructions in brackets like [PAUSE=1s] "
+                "or [whispering] by actually performing them. Do not speak the brackets aloud. "
+                f"Script: {clean_script}"
+            )
+
             config = types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
                 speech_config=types.SpeechConfig(
@@ -55,52 +73,55 @@ class AudioGenerator:
 
             logger.info(f'📝 Sending to Gemini: "{clean_script[:50]}..."')
             
-            # Using generate_content for TTS
             response = self.client.models.generate_content(
                 model=self.model_id,
-                contents=f"Read this naturally and clearly: {clean_script}",
+                contents=full_prompt,
                 config=config
             )
 
-            # Extract the raw PCM bytes
-            # Part 0 contains the inline_data which is the audio stream
+            # 1. Load raw PCM from Gemini into Pydub
             audio_bytes = response.candidates[0].content.parts[0].inline_data.data
-            
-            # Convert and Save as MP3
-            self._export_to_mp3(audio_bytes, output_path)
-            
+            voice_segment = AudioSegment.from_raw(
+                io.BytesIO(audio_bytes),
+                sample_width=2,
+                frame_rate=24000,
+                channels=1
+            )
+
+            # 2. Apply Atmosphere if a vibe is provided
+            if vibe:
+                logger.info(f"🎵 Mixing with atmosphere: {vibe}")
+                final_audio = self._mix_atmosphere(voice_segment, vibe)
+            else:
+                final_audio = voice_segment
+
+            # 3. Export to MP3
+            final_audio.export(output_path, format="mp3", bitrate="192k")
             logger.info(f'✅ Audio generated successfully: {output_path}')
 
         except Exception as e:
             logger.error(f'❌ Gemini TTS Error: {str(e)}')
-            # Re-raise to let the main worker handle the failure
-            raise Exception(f'Failed to generate MP3: {str(e)}')
+            raise Exception(f'Failed to generate audio: {str(e)}')
 
 if __name__ == "__main__":
-    # Configure basic logging to see the output in your terminal
     logging.basicConfig(level=logging.INFO)
-    
-    # 1. Initialize the generator
-    # Make sure your GOOGLE_API_KEY is set in your environment variables
     gen = AudioGenerator()
     
-    # 2. Define a test script and output path
-    test_script = "Hello! This is a test of the Gemini text to speech engine. Everything seems to be working perfectly."
-    test_output = "test_gemini_audio.mp3"
+    # Ensure this folder exists for the test to work!
+    if not os.path.exists("Atmosphere"):
+        os.makedirs("Atmosphere")
+        print("Created Atmosphere folder. Please add a 'horror.mp3' for testing.")
+
+    test_script = "The routine was always the same. I'd tuck her in, kiss her forehead, and check under the bed. But tonight, she wasn't looking at me. She was looking behind me."
+    test_output = "cinematic_test.mp3"
     
-    print(f"\n--- Starting Standalone Test ---")
+    print(f"\n--- Starting Cinematic Test ---")
     try:
-        # 3. Run the generation
-        # You can try different voices here: "Aoede", "Kore", "Charon", "Fenrir"
-        gen.generate_audio(test_script, test_output, voice_name="Aoede")
+        # Pass the 'vibe' here (matching a filename in your Atmosphere folder)
+        gen.generate_audio(test_script, test_output, voice_name="Aoede", vibe="horror")
         
-        # 4. Final check
         if os.path.exists(test_output):
-            size = os.path.getsize(test_output)
-            print(f"✅ Success! Generated: {test_output} ({size} bytes)")
-        else:
-            print(f"❌ Failed: File was not created.")
+            print(f"✅ Success! Check {test_output}")
             
     except Exception as e:
-        print(f"❌ Test Failed with error: {e}")
-    print(f"--- Test Finished ---\n")
+        print(f"❌ Test Failed: {e}")
