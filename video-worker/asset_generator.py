@@ -131,7 +131,7 @@ class AssetGenerator:
         logger.info(f'🎤 Step 3/3: Generating audio from narration...')
         
         # Generate audio using clean narration text (no labels, no parentheses)
-        self.audio_generator.generate_audio(narration, str(audio_path), "en", audio_vibe)
+        self.audio_generator.generate_audio(narration, str(audio_path))
         
         logger.info(f'✅ All assets generated successfully for job {job_id}')
         
