@@ -18,22 +18,39 @@ class ScriptGenerator:
 
     def _get_narration(self, context: Dict[str, Any]) -> str:
         """Step 1: Generate script with 'Thinking' enabled to plan pacing."""
+
         prompt = f"""
-            Act as a world-class short-form copywriter.
+            Act as a world-class Story Architect.
             Topic: {context['topic']}
-            Category: {context['category']}
-            Goal: {context['emotional_goal']}
-            
-            F5-TTS OPTIMIZATION REQUIREMENTS:
-            1. SPEED: The audio must be fast and high-energy.
-            2. NO PAUSES: Do not use commas, ellipses, or dashes. 
-            3. WORD COUNT: Exactly 80-85 words for a 25-second duration.
-            
-            THINKING PROCESS:
-            Before writing the script, analyze how to achieve a 'rapid-fire' pace 
-            without using punctuation that triggers TTS pauses.
-            
-            RETURN ONLY THE FINAL SCRIPT TEXT.
+            Goal: {context['emotional_goal']} (Make it deeply relatable and haunting)
+
+            TASK:
+            Create a complete narrative blueprint for a 25-30 second cinematic short.
+
+            NARRATIVE ARCHITECTURE:
+            1. HOOK: A common, relatable routine or memory (e.g., bedtime, a drawing, a toy).
+            2. TWIST: A subtle, "wrong" detail that twists that routine.
+            3. PAYOFF: A high-stakes payoff that leaves the viewer breathless.
+
+            REQUIRED OUTPUT STRUCTURE (JSON ONLY):
+            {{
+                "character_dna": "Define a consistent physical anchor for the main character (e.g., 'A 5-year-old girl named Lily, raven-black bob hair, pale skin, wearing a tattered teal silk nightgown').",
+                "narration": "Write the full story script. Use natural punctuation (commas, ellipses) for cinematic pacing since TTS speed restrictions are removed.",
+                "storyboard": [
+                    {{
+                        "sequence": "Hook",
+                        "description": "Describe the relatable safe start. Focus on the mood and the character's initial state."
+                    }},
+                    {{
+                        "sequence": "Twist",
+                        "description": "Describe the moment reality shifts. Focus on the subtle 'wrong' detail."
+                    }},
+                    {{
+                        "sequence": "Payoff",
+                        "description": "Describe the climactic final visual. Focus on high-impact horror/drama."
+                    }}
+                ]
+            }}
         """.strip()
 
         # Call with Thinking Config
@@ -45,7 +62,18 @@ class ScriptGenerator:
                 temperature=0.7
             )
         )
-        return response.text.strip()
+        raw_text = response.text
+
+        # 2. CLEAN the text (sometimes Gemini adds ```json ... ``` blocks)
+        clean_json = raw_text.replace("```json", "").replace("```", "").strip()
+
+        # 3. CONVERT string to dictionary (This is the missing step!)
+        try:
+            data = json.loads(clean_json)
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse AI response: {raw_text}")
+            raise e
+        return data
 
     def generate_script(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Orchestrates the 2-step generation with thinking-enabled visuals."""
@@ -57,19 +85,28 @@ class ScriptGenerator:
         # STEP 2: Visuals & Vibe (Requesting Structured JSON)
         logger.info("🤖 Step 2: Planning Visual Director logic...")
         visual_prompt = f"""
-            Based on this script: "{narration}"
-            Generate 7 cinematic visual prompts in {context['video_theme']} style.
-            
-            - Theme: {context['video_theme']}
-            - Topic: {context['topic']}
-            - Style: Real-world, high-stakes cinematography.
-            - Audio Vibe: Choose exactly one from [cosmic, epic, horror].
+            Act as a professional Cinematographer and SDXL Prompt Engineer. 
+            TASK: Convert the 3-act storyboard into 5 distinct, highly-detailed technical image prompts.
 
+            INPUT DATA:
+            - Character DNA: {narration['character_dna']}
+            - Storyboard: {narration['storyboard']}
+            - Art Style: {context['video_theme']}.
+
+          
             OUTPUT MUST BE VALID JSON:
             {{
-                "narration": "{narration}",
-                "visual_prompts": ["Scene 1...", "Scene 2...", "..."],
-                "audio_vibe": "vibe"
+                "narration": "{narration['narration']}",
+                "visual_prompts": [
+                    "Shot 1 (Establishing): [Character DNA] + [Environment details]",
+                    "Shot 2 (Routine): [Character DNA] + [Specific action] ",
+                    "Shot 3 (The Wrong Detail): [Character DNA] + [Macro focus on object] + [Deep ink shadows]",
+                    "Shot 4 (Reaction): [Character DNA] + [Expression details]",
+                    "Shot 5 (The Payoff): [Character DNA] + [Climax action] + [Splash page climax]"
+                ],
+                "audio_vibe": "horror"
+                "character_dna": "{narration['character_dna']}"
+                "storyboard": {narration['storyboard']}
             }}
         """.strip()
 
@@ -82,5 +119,5 @@ class ScriptGenerator:
                 temperature=0.4
             )
         )
-        
+        logger.info("🤖 Step 2: Planning Visual Director logic...",response.text )
         return json.loads(response.text)
