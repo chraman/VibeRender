@@ -2,4 +2,4 @@
 !apt-get install -y espeak-ng libsndfile1
 
 # 2. Install the Python 3.12 compatible versions
-!pip install --no-cache-dir -U pyngrok coqui-tts diffusers transformers accelerate pydub nest_asyncio fastapi uvicorn noisereduce librosa soundfile
+!pip install --no-cache-dir -U pyngrok f5-tts diffusers transformers accelerate pydub nest_asyncio fastapi uvicorn noisereduce librosa soundfile bitsandbytes
