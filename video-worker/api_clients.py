@@ -3,7 +3,8 @@ API client initialization and configuration for VibeRender Video Worker.
 """
 
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from elevenlabs import ElevenLabs
 from utils import mask_api_key
 
@@ -11,35 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
-    """Handles Google Gemini API configuration and initialization."""
+    """Updated for the new google-genai SDK architecture."""
     
-    def __init__(self, api_key: str, model_name: str = 'gemini-2.0-flash'):
-        """
-        Initialize Gemini API client.
-        
-        Args:
-            api_key: Google Gemini API key
-            model_name: Model name to use (default: 'gemini-2.0-flash')
-            
-        Raises:
-            ValueError: If API key is not provided
-        """
-        if not api_key:
-            raise ValueError('GEMINI_API_KEY is not set in environment variables')
-        
-        logger.info('🔑 API Keys Configuration:')
-        logger.info(f'   GEMINI_API_KEY: {mask_api_key(api_key)} (length: {len(api_key)})')
-        
-        # Configure Google Gemini API
-        logger.debug('🔑 Configuring Google Gemini API...')
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
-        logger.info(f'✅ Google Gemini API configured (model: {model_name})')
-    
-    def get_model(self):
-        """Get the configured Gemini model."""
-        return self.model
+    def __init__(self, api_key: str):
+        # NEW: The Client is the main entry point, no more 'genai.configure'
+        self.client = genai.Client(api_key=api_key)
+        logger.info("✅ Gemini 2.0 Client (new SDK) initialized")
 
+    def get_model(self):
+        """
+        Returns the client. In the new SDK, calls look like:
+        client.models.generate_content(model='model-id', ...)
+        """
+        return self.client
 
 class ElevenLabsClient:
     """Handles ElevenLabs API configuration and initialization."""

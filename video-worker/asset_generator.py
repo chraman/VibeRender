@@ -1,6 +1,7 @@
 """
 Asset generation module for VibeRender Video Worker.
 Main coordinator for generating video assets (script, audio, images).
+Updated for Gemini 2.0 (google-genai) and F5-TTS optimization.
 """
 
 import os
@@ -17,19 +18,20 @@ from video_renderer import render_video
 
 logger = logging.getLogger(__name__)
 
-
 class AssetGenerator:
     """Handles generation of video assets (script, audio, images)."""
     
     def __init__(self):
-        """Initialize the asset generator with API clients and specialized generators."""
+        """Initialize with updated API clients and specialized generators."""
         logger.info('🔧 Initializing AssetGenerator...')
         
         # Initialize API clients
+        # GeminiClient now expects the new google-genai SDK Client architecture
         self.gemini_client = GeminiClient(Config.GEMINI_API_KEY)
         self.elevenlabs_client = ElevenLabsClient(Config.ELEVENLABS_API_KEY)
         
         # Initialize specialized generators
+        # We pass the gemini_client which now holds the genai.Client()
         self.script_generator = ScriptGenerator(self.gemini_client)
         self.audio_generator = AudioGenerator(self.elevenlabs_client)
         
@@ -44,9 +46,17 @@ class AssetGenerator:
         logger.info('✅ AssetGenerator initialized')
 
     def normalize_narration(self, text: str) -> str:
-        text = text.replace("...", ".")
-        text = text.replace("—", ",")
-        text = text.replace("  ", " ")
+        """
+        Aggressive normalization for F5-TTS pacing.
+        Replaces pause-inducing punctuation with spaces to ensure 
+        a rapid-fire, high-energy narration delivery.
+        """
+        # Remove characters that trigger long pauses in TTS engines
+        for char in [",", "...", "—", "-", ":", ";"]:
+            text = text.replace(char, " ")
+        
+        # Normalize whitespace
+        text = " ".join(text.split())
         return text.strip()
 
     def generate_assets(self, job_id: int, job: Dict[str, Any]) -> Dict[str, str]:
