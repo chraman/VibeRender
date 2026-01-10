@@ -18,27 +18,35 @@ except ImportError:
 def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
     # 1. Load and initial "Fill" to target size
     pil_img = Image.open(image_path).convert("RGB")
-    
-    # Calculate scale to fill the 1080x1920 area completely (Aspect Ratio Cover)
+    orig_w, orig_h = pil_img.size
     target_w, target_h = target_size
-    img_w, img_h = pil_img.size
-    scale_f = max(target_w / img_w, target_h / img_h)
+
+    # 2. ASPECT RATIO COVER (The "Fill" logic)
+    # Determine the minimum scale needed to cover the screen
+    scale_to_cover = max(target_w / orig_w, target_h / orig_h)
     
-    # Base size is now slightly larger than target to allow for motion buffer
-    # We add 20% extra padding (1.2x) so we never see black edges while drifting
-    buffer_factor = 1.2 
-    fill_w = int(img_w * scale_f * buffer_factor)
-    fill_h = int(img_h * scale_f * buffer_factor)
-    
-    pil_img = pil_img.resize((fill_w, fill_h), Image.Resampling.LANCZOS)
-    
-    # --- RANDOMIZE MOTION ---
-    zoom_start = 1.0
-    zoom_end = random.uniform(1.1, 1.2) # Zooming in further
-    
-    # Random drift range (now safe because we have the 20% buffer)
-    max_dx = (fill_w - target_w) // 2
-    max_dy = (fill_h - target_h) // 2
+    # 3. QUALITY CHECK
+    # If the image is already smaller than the screen, we limit the zoom
+    # If the image is huge (4K), we can zoom more safely.
+    if orig_w < target_w or orig_h < target_h:
+        # Image is low-res, use a very tiny motion to prevent blur
+        zoom_intensity = 1.05 
+        buffer_factor = 1.05
+    else:
+        # Image is high-res, we can afford a bit more motion
+        zoom_intensity = 1.12 
+        buffer_factor = 1.10
+
+    # 4. PRE-RESIZE (Prepare the base canvas)
+    # We scale it just enough to cover + buffer, no more.
+    base_w = int(orig_w * scale_to_cover * buffer_factor)
+    base_h = int(orig_h * scale_to_cover * buffer_factor)
+    pil_img = pil_img.resize((base_w, base_h), Image.Resampling.LANCZOS)
+
+    # 5. RANDOM DRIFT RANGE
+    # Drift is limited to the 'buffer' area only
+    max_dx = (base_w - target_w) // 2
+    max_dy = (base_h - target_h) // 2
     
     dx_start, dx_end = random.randint(-max_dx, max_dx), random.randint(-max_dx, max_dx)
     dy_start, dy_end = random.randint(-max_dy, max_dy), random.randint(-max_dy, max_dy)
@@ -46,17 +54,16 @@ def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
     def make_frame(t):
         progress = t / duration
         
-        # Calculate current zoom and drift
-        curr_zoom = zoom_start + (zoom_end - zoom_start) * progress
+        # Linear Zoom & Drift
+        curr_zoom = 1.0 + (zoom_intensity - 1.0) * progress
         curr_dx = dx_start + (dx_end - dx_start) * progress
         curr_dy = dy_start + (dy_end - dy_start) * progress
         
-        # Resize for zoom
-        z_w, z_h = int(fill_w * curr_zoom), int(fill_h * curr_zoom)
-        # Optimization: Only resize if zoom is significantly different
+        # Calculate zoomed dimensions
+        z_w, z_h = int(base_w * curr_zoom), int(base_h * curr_zoom)
         img_zoomed = pil_img.resize((z_w, z_h), Image.Resampling.LANCZOS)
         
-        # Calculate center-based crop
+        # Center-based crop coordinates
         center_x, center_y = img_zoomed.width // 2, img_zoomed.height // 2
         
         # Final Crop Coordinates
@@ -71,10 +78,9 @@ def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
         
         frame = np.array(img_final)
         
-        # Fade-in effect logic
-        if t < 0.5:
-            alpha = t / 0.5
-            frame = (frame * alpha).astype(np.uint8)
+        # Smooth Fade-In
+        if t < 0.4:
+            frame = (frame * (t / 0.4)).astype(np.uint8)
             
         return frame
 
