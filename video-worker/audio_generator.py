@@ -48,21 +48,41 @@ class AudioGenerator:
             logger.error(f"Failed to mix atmosphere: {e}")
             return voice_segment
 
-    def generate_audio(self, script: str, output_path: str, voice_name: str = "Aoede", vibe: str = None) -> None:
+    def generate_audio(self, script: str, output_path: str, voice_name: str = "Aoede", vibe: str = None, language_code: str = "en-US") -> None:
         """Generates MP3 audio and optionally mixes it with a background vibe."""
         try:
             clean_script = script.strip()
             # 1. Formatting the prompt to ensure tags are followed
             # We tell Gemini explicitly to follow the [PAUSE] and [vocal] tags.
-            full_prompt = (
-                "Perform this script as a voice actor. Follow all instructions in brackets like [PAUSE=1s] "
-                "or [whispering] by actually performing them. Do not speak the brackets aloud. "
-                f"Script: {clean_script}"
-            )
+
+            if language_code == "hi-IN":
+                # Instructions optimized for Hinglish -> Hindi conversion
+                full_prompt = (
+                    "You are a professional Hindi voice actor. "
+                    "The script below is written in Hinglish (Hindi using Roman script). "
+                    "Perform it naturally in Hindi with a clear Indian accent. "
+                    "Follow all [PAUSE] or [vocal] tags but do not speak them. "
+                    f"Script: {clean_script}"
+                )
+            else:
+                # Standard instructions for English or other languages      
+                full_prompt = (
+                    "Perform this script as a voice actor. Follow all instructions in brackets like [PAUSE=1s] "
+                    "or [whispering] by actually performing them. Do not speak the brackets aloud. "
+                    f"Script: {clean_script}"
+                )
 
             config = types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
+                # ADD SAFETY SETTINGS HERE
+                safety_settings=[
+                    types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+                    types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+                    types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+                    types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+                ],
                 speech_config=types.SpeechConfig(
+                        language_code=language_code,
                     voice_config=types.VoiceConfig(
                         prebuilt_voice_config=types.PrebuiltVoiceConfig(
                             voice_name=voice_name
@@ -78,8 +98,12 @@ class AudioGenerator:
                 contents=full_prompt,
                 config=config
             )
-
-            # 1. Load raw PCM from Gemini into Pydub
+            # CHECK IF RESPONSE IS VALID
+            if not response.candidates or not response.candidates[0].content:
+                # Check for finish_reason (usually SAFETY or OTHER)
+                reason = response.candidates[0].finish_reason if response.candidates else "No candidates"
+                raise Exception(f"Gemini returned no audio content. Reason: {reason}")
+            # Now it is safe to access parts
             audio_bytes = response.candidates[0].content.parts[0].inline_data.data
             voice_segment = AudioSegment.from_raw(
                 io.BytesIO(audio_bytes),
@@ -112,7 +136,7 @@ if __name__ == "__main__":
         os.makedirs("Atmosphere")
         print("Created Atmosphere folder. Please add a 'horror.mp3' for testing.")
 
-    test_script = "The routine was always the same. I'd tuck her in, kiss her forehead, and check under the bed. But tonight, she wasn't looking at me. She was looking behind me."
+    test_script = "[fast] Aryan ki watch glitch hui aur wo 2024 se seedha 1890 mein gira. [PAUSE=0.5s] [intense] Dhuaan purani galiyan aur wahan wo khadi thi. [PAUSE=0.5s] [slow] Ek nazar aur waqt thamm gaya. [fast] Science galat ho sakti hai [PAUSE=0.5s] magar ye connection? [intense] Bilkul perfect tha. [slow] Pyaar jo sadiyon ka intezar khatam kar de."
     test_output = "cinematic_test.mp3"
     
     print(f"\n--- Starting Cinematic Test ---")

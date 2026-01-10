@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 from typing import Dict, Any
 from google import genai
@@ -17,79 +18,98 @@ class ScriptGenerator:
         logger.info(f'📝 ScriptGenerator initialized with {self.model_id}')
 
     def _get_narration(self, context: Dict[str, Any]) -> str:
-        """Step 1: Generate script with 'Thinking' enabled to plan pacing."""
+        """Step 1: Generate script with 'Thinking' enabled to plan pacing and duration."""
 
+        # Define genre-specific "vibe" instructions to inject into the prompt
+        genre_profiles = {
+            "horror stories": "Guttural, staccato sentences, heavy on atmosphere and sudden shocks.",
+            "sci-fi stories": "Cold, clinical, high-tech terminology, pulsating rhythm.",
+            "action": "Verbal explosions, punchy verbs, zero fluff, high kinetic energy.",
+            "noir": "Rhythmic, cynical, slow-burn tension that snaps at the end."
+        }
+        
+        selected_vibe = genre_profiles.get(context['sub_niche'].lower(), "Dynamic and cinematic.")
+        # We calculate a word budget: 30 seconds - pauses = ~65 words max.
         prompt = f"""
-            Act as a world-class Story Architect.
-            Topic: {context['topic']}
-            Goal: {context['emotional_goal']} (Make it deeply relatable and haunting)
+           Act as a Director and Lead Editor for a 30-second cinematic short.
+        
+            GENRE: {context['sub_niche']}
+            TOPIC: {context['topic']}
+            EMOTION: {context['emotional_goal']}
+            Language Code: Choose exactly one from [en-US, hi-IN].
 
             TASK:
-            Create a complete narrative blueprint for a 25-30 second cinematic short.
+            Create a 30-second story blueprint. 
+            Focus on deep descriptive detail that captures the 'mood' and 'action' of each scene.
 
-            NARRATIVE ARCHITECTURE:
-            1. HOOK: A common, relatable routine or memory (e.g., bedtime, a drawing, a toy).
-            2. TWIST: A subtle, "wrong" detail that twists that routine.
-            3. PAYOFF: A high-stakes payoff that leaves the viewer breathless.
+            CONSTRAINTS:
+            1. CHARACTER DNA: Define a consistent physical anchor (clothing, features, age).
+            2. NARRATION: Fast-paced third-person script (Max 80 words). Use [fast] and [PAUSE=0.5s].
+            3. SCENE DETAILS: Describe the setting, the action, and the lighting for 3 scenes. No technical prompts—just vivid descriptions.
 
-            TTS PERFORMANCE GUIDELINES:
-            - Use expressive tags in square brackets like [whispering], [sighing], [laughing], or [shouting] to direct the voice.
-            - Use [PAUSE=1s] for dramatic silences.
-            - Use natural punctuation (..., !, ?) to guide the model's native prosody.
-
-            REQUIRED OUTPUT STRUCTURE (JSON ONLY):
+            TTS TAGS: Use [fast], [slow], [intense], and [PAUSE=0.5s].
+            Output only valid JSON. Do not include trailing commas after the last item in a list or object. Ensure the output is strictly parseable by the Python json.loads() library.
+            JSON OUTPUT:
             {{
-                "character_dna": "Define a consistent physical anchor for the main character (e.g., 'A 5-year-old girl named Lily, raven-black bob hair, pale skin, wearing a tattered teal silk nightgown').",
-                "narration": "Write the full story script. Use natural punctuation (commas, ellipses) for cinematic pacing since TTS speed restrictions are removed.",
+                "narration": "The full script for TTS....",
+                "character_dna": "Detailed physical description of the protagonist."
+                "language_code": "Language Code",
                 "storyboard": [
                     {{
-                        "sequence": "Hook",
-                        "description": "Describe the relatable safe start. Focus on the mood and the character's initial state."
+                    "sequence": "Hook",
+                    "timing": "0-5s",
+                    "scene_description": "A vivid description of the environment and the character's initial action.",
+                    "emotional_beat": "The specific feeling this scene should evoke."
                     }},
                     {{
-                        "sequence": "Twist",
-                        "description": "Describe the moment reality shifts. Focus on the subtle 'wrong' detail."
+                    "sequence": "Twist",
+                    "timing": "5-20s",
+                    "scene_description": "How the environment or character changes. Detail the subtle 'wrong' element.",
+                    "emotional_beat": "The shift in mood."
                     }},
                     {{
-                        "sequence": "Payoff",
-                        "description": "Describe the climactic final visual. Focus on high-impact horror/drama."
+                    "sequence": "Payoff",
+                    "timing": "20-30s",
+                    "scene_description": "The final climactic imagery and the character's end state.",
+                    "emotional_beat": "The lingering impact."
                     }}
                 ]
             }}
         """.strip()
 
-        # Call with Thinking Config
         response = self.client.models.generate_content(
             model=self.model_id,
             contents=prompt,
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(include_thoughts=True),
-                temperature=1.0
+                temperature=0.9, # Slightly lower for better constraint following
+                response_mime_type="application/json"
             )
         )
-        raw_text = response.text
-        # FIX: Extract text by filtering out "thinking" parts
-        actual_text = ""
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                # If the part has a 'thought' attribute and it's True, skip it
-                if hasattr(part, 'thought') and part.thought:
-                    continue
-                if part.text:
-                    actual_text += part.text
 
-        if not actual_text:
-            logger.error("❌ Gemini returned an empty response. Check safety filters.")
-            raise ValueError("Empty response from AI")
+        # Extracting text while skipping 'thought' parts
+        actual_text = "".join(
+            [part.text for part in response.candidates[0].content.parts if not hasattr(part, 'thought') or not part.thought]
+        )
 
-        # Clean and parse JSON
         try:
-            clean_json = actual_text.replace("```json", "").replace("```", "").strip()
-            return json.loads(clean_json)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON. Raw text: {actual_text[:100]}...")
+            # Use regex to find the JSON block even if the model adds markdown backticks
+            json_match = re.search(r"\{.*\}", actual_text, re.DOTALL)
+            if not json_match:
+                raise ValueError("No JSON found")
+                
+            data = json.loads(json_match.group())
+            
+            # Validation: Check word count locally as a safety net
+            word_count = len(data['narration'].split())
+            if word_count > 75:
+                logger.warning(f"Script might be too long: {word_count} words.")
+                
+            return data
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Parsing failed: {e}")
             raise
-
+    
     def generate_script(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Orchestrates the 2-step generation with thinking-enabled visuals."""
         
@@ -100,28 +120,40 @@ class ScriptGenerator:
         # STEP 2: Visuals & Vibe (Requesting Structured JSON)
         logger.info("🤖 Step 2: Planning Visual Director logic...")
         visual_prompt = f"""
-            Act as a professional Cinematographer and SDXL Prompt Engineer. 
-            TASK: Convert the 3-act storyboard into 5 distinct, highly-detailed technical image prompts.
-
+            Act as a professional Cinematographer and FLUX.1-schnell Visual Architect.
+    
+            TASK: 
+            Convert the following 3-act storyboard into 5 descriptive, natural-language image prompts optimized for FLUX.1-schnell.
+            
             INPUT DATA:
-            - Character DNA: {narration['character_dna']}
-            - Storyboard: {narration['storyboard']}
-            - Art Style: {context['video_theme']}.
+            - CHARACTER ANCHOR: {narration['character_dna']}
+            - THEME/STYLE: {context['video_theme']}
+            - STORY DETAILS: {narration['storyboard']}
+            - Audio Vibe: Choose exactly one from [cosmic, epic, horror].
+            - Language Code: {narration['language_code']}
 
-          
-            OUTPUT MUST BE VALID JSON:
+            CRITICAL INSTRUCTIONS:
+            1. COMPOSITION OVER CHARACTER: Do not start every prompt with the Character DNA. Start with the "Scene Setup" or "Camera Angle" to ensure the story world is rendered.
+            2. THE INTERACTION: Ensure the character is INTERACTING with objects or the environment mentioned in the storyboard.
+            3. FLUX NATURAL LANGUAGE: Describe the scene in 2-3 descriptive sentences. Avoid keyword "tag" clouds.
+            4. CONSISTENCY: Use the Character DNA as a recurring descriptive anchor, but integrate it naturally.
+            5. STYLE: Apply the '{context['video_theme']}' art style consistently.
+
+            Output only valid JSON. Do not include trailing commas after the last item in a list or object. Ensure the output is strictly parseable by the Python json.loads() library.
+            OUTPUT JSON STRUCTURE:
             {{
                 "narration": "{narration['narration']}",
+                "character_dna": "{narration['character_dna']}",
                 "visual_prompts": [
-                    "Shot 1 (Establishing): [Character DNA] + [Environment details]",
-                    "Shot 2 (Routine): [Character DNA] + [Specific action] ",
-                    "Shot 3 (The Wrong Detail): [Character DNA] + [Macro focus on object] + [Deep ink shadows]",
-                    "Shot 4 (Reaction): [Character DNA] + [Expression details]",
-                    "Shot 5 (The Payoff): [Character DNA] + [Climax action] + [Splash page climax]"
+                    "Shot 1 (The Hook): [Style] style. [Wide/Establishing shot]. Describe the environment first, then place [Character DNA] within it, establishing the routine.",
+                    "Shot 2 (Development): [Style] style. [Medium shot]. Focus on the character's interaction with a specific object or setting detail from the storyboard.",
+                    "Shot 3 (The Twist): [Style] style. [Dutch angle or Close-up]. Highlight the 'wrong' or 'subtle' detail. The character's [Key DNA details] should be secondary to the haunting element.",
+                    "Shot 4 (Reaction): [Style] style. [Extreme Close-up]. Focus on the character's facial expression and the shift in lighting/atmosphere.",
+                    "Shot 5 (The Payoff): [Style] style. [Climactic composition]. The visual realization of the payoff. Focus on the transformation or high-stakes reveal mentioned in the storyboard."
                 ],
-                "audio_vibe": "horror"
-                "character_dna": "{narration['character_dna']}"
-                "storyboard": {narration['storyboard']}
+                "audio_vibe": "Audio Vibe",
+                "language_code": "Language Code",
+                "storyboard_reference": {narration['storyboard']}
             }}
         """.strip()
 
@@ -135,4 +167,20 @@ class ScriptGenerator:
             )
         )
         logger.info("🤖 Step 2: Planning Visual Director logic...",response.text )
-        return json.loads(response.text)
+                # Extracting text while skipping 'thought' parts
+        actual_text = "".join(
+            [part.text for part in response.candidates[0].content.parts if not hasattr(part, 'thought') or not part.thought]
+        )
+
+        try:
+            # Use regex to find the JSON block even if the model adds markdown backticks
+            json_match = re.search(r"\{.*\}", actual_text, re.DOTALL)
+            if not json_match:
+                raise ValueError("No JSON found")
+                
+            data = json.loads(json_match.group())
+        
+            return data
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Parsing failed: {e}")
+            raise

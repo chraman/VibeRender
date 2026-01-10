@@ -96,10 +96,12 @@ class AssetGenerator:
         narration = self.normalize_narration(script_data['narration'])
         visual_prompts = script_data['visual_prompts']
         audio_vibe = script_data.get('audio_vibe', '')
+        language_code = script_data.get('language_code', '')
         
         logger.debug(f'   Narration length: {len(narration)} characters')
         logger.debug(f'   Visual prompts: {len(visual_prompts)} items')
         logger.debug(f'   Audio vibe: {audio_vibe}')
+        logger.debug(f'   Audio vibe: {language_code}')
         
         # Save full JSON structure to script.txt (for debugging)
         logger.debug(f'💾 Saving full JSON to: {script_path}')
@@ -131,7 +133,7 @@ class AssetGenerator:
         logger.info(f'🎤 Step 3/3: Generating audio from narration...')
         
         # Generate audio using clean narration text (no labels, no parentheses)
-        self.audio_generator.generate_audio(narration, str(audio_path), "Aoede", audio_vibe)
+        self.audio_generator.generate_audio(narration, str(audio_path), "Aoede", audio_vibe, language_code)
         
         logger.info(f'✅ All assets generated successfully for job {job_id}')
         
