@@ -4,6 +4,8 @@ import random
 import numpy as np
 from PIL import Image
 from typing import List
+import re
+import whisper
 
 try:
     from moviepy import AudioFileClip, VideoClip, VideoFileClip, CompositeVideoClip, TextClip
@@ -89,35 +91,71 @@ def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
 # ---------------------------------------------------------
 # SUBTITLE ENGINE
 # ---------------------------------------------------------
-def build_subtitles(script_text, audio_duration):
-    logger.info("...Generating Subtitles")
-    font_path = "C:/Windows/Fonts/arialbd.ttf"
-    if not os.path.exists(font_path): font_path = "Arial"
-
-    words = script_text.split()
-    phrases = [" ".join(words[i:i+3]) for i in range(0, len(words), 3)]
-    dur_per_phrase = audio_duration / max(len(phrases), 1)
+def build_subtitles(script_text, audio_path):
+    # 1. Load Whisper (CPU optimized for your 16GB RAM)
+    model = whisper.load_model("base", device="cpu")
+    
+    # Force language and disable translation
+    # word_timestamps=True is the key for "one-by-one" appearance
+    result = model.transcribe(audio_path, word_timestamps=True, language="en", task="transcribe")
+    
+    # 2. Clean your original script (Ensures NO translation is used)
+    clean_text = re.sub(r'\[.*?\]', '', script_text)
+    original_words = clean_text.split()
     
     clips = []
-    for i, phrase in enumerate(phrases):
+    
+    # 3. Extract EVERY word timestamp from Whisper
+    all_word_timestamps = []
+    for segment in result['segments']:
+        for word_data in segment['words']:
+            all_word_timestamps.append({
+                'start': word_data['start'],
+                'end': word_data['end']
+            })
+
+    # 4. Match your original text to Whisper's timing
+    # Even if Whisper mishears a word, we use YOUR word at THAT time
+    for i, word_info in enumerate(all_word_timestamps):
+        if i >= len(original_words): break
+        
+        word_text = original_words[i].upper()
+        start_t = word_info['start']
+        end_t = word_info['end']
+        
+        # Trendy styling: One word in the center
         txt = (TextClip(
-            text=phrase.upper(),
-            font=font_path,
-            font_size=80,
+            text=word_text,
+            font="C:/Windows/Fonts/arialbd.ttf",
+            font_size=120,      # Bigger font since it's only one word
             color="white",
             stroke_color="black",
-            stroke_width=2,
-            method="caption",
-            size=(900, 400)
-        ).with_start(i * dur_per_phrase)
-         .with_duration(dur_per_phrase)
-         .with_position(("center", 1300)))
-        
-        # Text clips in v2 usually work better with static opacity
-        # If you need them to fade, use the same np.array logic as above
-        clips.append(txt)
-    return clips
+            stroke_width=4,
+            method="label", # Label is better for single words
+            margin=(20, 40) # Adds 20px horizontal and 40px vertical padding  # 'label' is faster than 'caption' for single words
+        ).with_start(start_t)
+         .with_duration(end_t - start_t)
+         .with_position(("center", "center"))) # Center of screen for high impact
 
+        # 5. The "Trendy" Punch-In Animation
+        def word_pop(get_frame, t):
+            frame = get_frame(t)
+            # Fast pop: 0.1 seconds
+            if t < 0.1:
+                zoom = 1.3 - (0.3 * (t / 0.1)) # Start big (1.3x) and shrink
+                img = Image.fromarray(frame)
+                w, h = img.size
+                img = img.resize((int(w*zoom), int(h*zoom)), Image.Resampling.LANCZOS)
+                # Crop back to center
+                left = (img.size[0] - w) / 2
+                top = (img.size[1] - h) / 2
+                return np.array(img.crop((left, top, left + w, top + h)))
+            return frame
+
+        txt = txt.transform(word_pop)
+        clips.append(txt)
+
+    return clips
 # ---------------------------------------------------------
 # MAIN RENDERER
 # ---------------------------------------------------------
@@ -139,7 +177,8 @@ def render_video(script_text: str, audio_path: str, media_paths: List[str], outp
             final_clips.append(clip)
             
         # ... (Include subtitle building code from previous step) ...
-        sub_clips = build_subtitles(script_text, audio_dur)
+        # sub_clips = build_subtitles(script_text, audio_dur)
+        sub_clips = build_subtitles(script_text, audio_path)
 
         final_video = CompositeVideoClip(
             final_clips + sub_clips, 
