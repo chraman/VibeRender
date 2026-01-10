@@ -8,7 +8,6 @@ from typing import List
 try:
     from moviepy import AudioFileClip, VideoClip, VideoFileClip, CompositeVideoClip, TextClip
     logger = logging.getLogger(__name__)
-    logging.basicConfig(level=logging.INFO)
 except ImportError:
     raise ImportError("Please install moviepy: pip install moviepy")
 
@@ -16,71 +15,72 @@ except ImportError:
 # DYNAMIC MOTION ENGINE (Zoom + Random Shift)
 # ---------------------------------------------------------
 def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
-    # 1. Load and initial "Fill" to target size
+    # 1. Load and prepare high-res base
     pil_img = Image.open(image_path).convert("RGB")
-    orig_w, orig_h = pil_img.size
-    target_w, target_h = target_size
-
-    # 2. ASPECT RATIO COVER (The "Fill" logic)
-    # Determine the minimum scale needed to cover the screen
-    scale_to_cover = max(target_w / orig_w, target_h / orig_h)
+    tw, th = target_size
     
-    # 3. QUALITY CHECK
-    # If the image is already smaller than the screen, we limit the zoom
-    # If the image is huge (4K), we can zoom more safely.
-    if orig_w < target_w or orig_h < target_h:
-        # Image is low-res, use a very tiny motion to prevent blur
-        zoom_intensity = 1.05 
-        buffer_factor = 1.05
-    else:
-        # Image is high-res, we can afford a bit more motion
-        zoom_intensity = 1.12 
-        buffer_factor = 1.10
-
-    # 4. PRE-RESIZE (Prepare the base canvas)
-    # We scale it just enough to cover + buffer, no more.
-    base_w = int(orig_w * scale_to_cover * buffer_factor)
-    base_h = int(orig_h * scale_to_cover * buffer_factor)
+    # Scale to cover target + 20% extra "playing field" for the camera to move
+    # This is crucial: if you don't have extra image, you can't have motion!
+    scale_f = max(tw / pil_img.width, th / pil_img.height) * 1.20 
+    base_w, base_h = int(pil_img.width * scale_f), int(pil_img.height * scale_f)
     pil_img = pil_img.resize((base_w, base_h), Image.Resampling.LANCZOS)
 
-    # 5. RANDOM DRIFT RANGE
-    # Drift is limited to the 'buffer' area only
-    max_dx = (base_w - target_w) // 2
-    max_dy = (base_h - target_h) // 2
+    # 2. DEFINE A RANDOM FLIGHT PATH
+    # We pick a starting corner and an ending corner
+    # This ensures vertical, horizontal, and diagonal movement
+    move_types = ['zoom_in', 'zoom_out', 'pan_up', 'pan_down', 'pan_left', 'pan_right']
+    mode = random.choice(move_types)
     
-    dx_start, dx_end = random.randint(-max_dx, max_dx), random.randint(-max_dx, max_dx)
-    dy_start, dy_end = random.randint(-max_dy, max_dy), random.randint(-max_dy, max_dy)
+    # Calculate how much "extra" image we have to move within
+    limit_x = base_w - tw
+    limit_y = base_h - th
+
+    # Start and End coordinates (X, Y)
+    if mode == 'pan_up':
+        start_x, start_y = limit_x // 2, limit_y
+        end_x, end_y = limit_x // 2, 0
+    elif mode == 'pan_down':
+        start_x, start_y = limit_x // 2, 0
+        end_x, end_y = limit_x // 2, limit_y
+    elif mode == 'pan_right':
+        start_x, start_y = 0, limit_y // 2
+        end_x, end_y = limit_x, limit_y // 2
+    else: # Default/Zoom modes
+        start_x, start_y = random.randint(0, limit_x), random.randint(0, limit_y)
+        end_x, end_y = random.randint(0, limit_x), random.randint(0, limit_y)
 
     def make_frame(t):
-        progress = t / duration
+        # Progress from 0.0 to 1.0
+        p = t / duration
         
-        # Linear Zoom & Drift
-        curr_zoom = 1.0 + (zoom_intensity - 1.0) * progress
-        curr_dx = dx_start + (dx_end - dx_start) * progress
-        curr_dy = dy_start + (dy_end - dy_start) * progress
+        # Calculate current position using linear interpolation (Lerp)
+        curr_x = int(start_x + (end_x - start_x) * p)
+        curr_y = int(start_y + (end_y - start_y) * p)
         
-        # Calculate zoomed dimensions
-        z_w, z_h = int(base_w * curr_zoom), int(base_h * curr_zoom)
-        img_zoomed = pil_img.resize((z_w, z_h), Image.Resampling.LANCZOS)
+        # Subtle dynamic zoom (independent of panning)
+        # Even while panning, we zoom in an extra 5%
+        zoom_p = 1.0 + (0.07 * p) 
         
-        # Center-based crop coordinates
-        center_x, center_y = img_zoomed.width // 2, img_zoomed.height // 2
+        # Crop the window
+        img_frame = pil_img.crop((curr_x, curr_y, curr_x + tw, curr_y + th))
         
-        # Final Crop Coordinates
-        left = (center_x - target_w // 2) + curr_dx
-        top = (center_y - target_h // 2) + curr_dy
-        
-        # Final safety clamp to prevent black edges
-        left = max(0, min(left, img_zoomed.width - target_w))
-        top = max(0, min(top, img_zoomed.height - target_h))
-        
-        img_final = img_zoomed.crop((left, top, left + target_w, top + target_h))
-        
-        frame = np.array(img_final)
-        
-        # Smooth Fade-In
-        if t < 0.4:
-            frame = (frame * (t / 0.4)).astype(np.uint8)
+        # Apply the final micro-zoom
+        if zoom_p > 1.0:
+            zw, zh = int(tw * zoom_p), int(th * zoom_p)
+            img_frame = img_frame.resize((zw, zh), Image.Resampling.BILINEAR)
+            # Crop back to center
+            left = (zw - tw) // 2
+            top = (zh - th) // 2
+            img_frame = img_frame.crop((left, top, left + tw, top + th))
+
+        # Convert to numpy for MoviePy
+        frame = np.array(img_frame)
+
+        # 3. Add a dynamic "Flash" or "Fade" at the start
+        if t < 0.3:
+            # Quick brightness ramp-up (Flash effect)
+            factor = t / 0.3
+            frame = (frame * factor).astype(np.uint8)
             
         return frame
 

@@ -167,7 +167,7 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
                 script_text = f.read().strip()
             
             # Get audio file
-            audio_path = test_dir / 'test_audio.mp3'
+            audio_path = test_dir / 'audio.mp3'
             if not audio_path.exists():
                 raise FileNotFoundError(f'Test audio not found: {audio_path}')
             audio_path = str(audio_path)
@@ -184,7 +184,7 @@ def process_job(job: Dict[str, Any], cursor: RealDictCursor):
                     ext = file_path.suffix.lower()
                     if ext in image_extensions or ext in video_extensions:
                         # Skip the audio file if it has a video extension
-                        if file_path.name != 'test_audio.mp3':
+                        if file_path.name != 'audio.mp3':
                             media_paths.append(str(file_path))
             
             # Sort media paths for consistent ordering

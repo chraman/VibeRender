@@ -67,7 +67,7 @@ class ImageGenerator:
                 image_url, 
                 headers=headers,
                 stream=True, 
-                timeout=(15, 60)
+                timeout=300
             )
             
             if response.status_code != 200:
