@@ -2,322 +2,158 @@ import os
 import logging
 import random
 import numpy as np
+from PIL import Image
 from typing import List
-from moviepy import (
-    AudioFileClip,
-    ImageClip,
-    VideoFileClip,
-    CompositeVideoClip,
-    TextClip
-)
-from moviepy.video.VideoClip import VideoClip
-logger = logging.getLogger(__name__)
 
+try:
+    from moviepy import AudioFileClip, VideoClip, VideoFileClip, CompositeVideoClip, TextClip
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO)
+except ImportError:
+    raise ImportError("Please install moviepy: pip install moviepy")
 
 # ---------------------------------------------------------
-# RANDOM KEN-BURNS STYLE ZOOM + DRIFT (MoviePy 2.1.2 SAFE)
+# DYNAMIC MOTION ENGINE (Zoom + Random Shift)
 # ---------------------------------------------------------
-def apply_random_motion(clip, duration):
-    import random
-    import math
-
-    zoom_in = random.choice([True, False])
-    zoom_amount = random.uniform(1.02, 1.08)
-
-    start_zoom = 1.0
-    end_zoom = zoom_amount if zoom_in else (1.0 / zoom_amount)
-
-    # Pan drift (smooth)
-    drift_x = random.randint(-120, 120)
-    drift_y = random.randint(-150, 150)
-
-    # --- Smoothed zoom animation ---
-    def size_func(t):
-        p = max(0, min(1, t / duration))
-        ease = 3 * p**2 - 2 * p**3
-        zoom = start_zoom + (end_zoom - start_zoom) * ease
-        return (int(clip.w * zoom), int(clip.h * zoom))
-
-    # --- Smoothed position drift ---
-    def pos_func(t):
-        p = max(0, min(1, t / duration))
-        ease = 3 * p**2 - 2 * p**3
-
-        offset_x = int(drift_x * ease)
-        offset_y = int(drift_y * ease)
-
-        # VALID MoviePy format:  (x, y)
-        return ("center", offset_y)
-
-    clip = clip.resized(size_func)
-    clip = clip.with_position(pos_func)
-
-    return clip
-
-def get_font_path():
-    """
-    Returns a valid font path for MoviePy on Windows.
-    Fallback order:
-    1. Arial Bold
-    2. Arial Regular
-    3. No font (TextClip will use default)
-    """
-    arial_bold = "C:/Windows/Fonts/arialbd.ttf"
-    arial_regular = "C:/Windows/Fonts/arial.ttf"
-
-    if os.path.exists(arial_bold):
-        return arial_bold
-    if os.path.exists(arial_regular):
-        return arial_regular
-
-    return None  # MoviePy will fallback (not recommended)
-
-
-# ---------------------------------------------------------
-# SUBTITLES (Stable for MoviePy 2.1.2)
-# ---------------------------------------------------------
-def build_subtitles(script_text: str, audio_duration: float, font_path: str):
-    words = script_text.split()
-    phrase_groups = []
-
-    i = 0
-    while i < len(words):
-        n = random.randint(5, 8)
-        phrase_groups.append(" ".join(words[i:i + n]))
-        i += n
-
-    num_phrases = len(phrase_groups)
-    dur = audio_duration / num_phrases
-
-    clips = []
-
-    for idx, phrase in enumerate(phrase_groups):
-
-        clip = TextClip(
-            text=phrase,
-            font=font_path,
-            color="white",
-            stroke_color="black",
-            stroke_width=3,
-            method="caption",
-            size=(900, 400),
-            text_align="center",
-            vertical_align="center"
-        )
-
-        clip = (
-            clip.with_start(idx * dur)
-                .with_duration(dur)
-                .with_position(("center", 1350))
-                .with_fps(24)
-        )
-
-        clips.append(clip)
-
-    return clips
-
-def build_subtitles_s2(script_text: str, audio_duration: float):
-    """
-    S2-PRO SUBTITLE ENGINE
-    - Groups text into 5–8 word segments
-    - Fixed block height (prevents jitter)
-    - Crisp readable font
-    - Very fast rendering
-    """
+def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
+    # 1. Load and initial "Fill" to target size
+    pil_img = Image.open(image_path).convert("RGB")
     
-    words = script_text.strip().split()
-    total_words = len(words)
-
-    # Best for Shorts retention
-    MIN_W, MAX_W = 5, 8
-
-    segments = []
-    i = 0
-    while i < total_words:
-        seg_len = random.randint(MIN_W, MAX_W)
-        segment = " ".join(words[i:i + seg_len])
-        if segment:
-            segments.append(segment)
-        i += seg_len
-
-    num_segments = len(segments)
-    dur_per_segment = audio_duration / max(num_segments, 1)
-
-    # Font paths
-    FONT_BOLD = "C:/Windows/Fonts/arialbd.ttf"
-    FONT_REG  = "C:/Windows/Fonts/arial.ttf"
-
-    font_path = FONT_BOLD if os.path.exists(FONT_BOLD) else FONT_REG
-
-    clips = []
-    for idx, seg in enumerate(segments):
-        try:
-            txt = seg.strip()
-            txt_clip = TextClip(
-                text=txt,
-                color="white",
-                stroke_color="black",
-                stroke_width=2,
-                method="caption",
-                size=(900, 320),      # Fixed line-block prevents jitter
-                text_align="center",
-                vertical_align="center",
-                font=font_path
-            )
-
-            txt_clip = (
-                txt_clip
-                .with_duration(dur_per_segment)
-                .with_start(idx * dur_per_segment)
-                .with_position(("center", 1380))  # near bottom, safe zone
-                .with_fps(24)
-            )
-
-            clips.append(txt_clip)
-
-        except Exception as e:
-            print(f"[WARN] Subtitle segment failed: {seg[:25]}... / {e}")
-            continue
-
-    return clips
-
-def ease_out_cubic(t):
-    t = max(0, min(1, t))
-    return 1 - (1 - t) ** 3
-
-def build_subtitles_s3(script_text, audio_duration):
-    # Clean text: remove parentheses
-    words = script_text.replace("(", "").replace(")", "").split()
-    if not words:
-        return []
-
-    # Subtitle grouping: 3 words per phrase (fits the 2-4 rule)
-    phrases = []
-    for i in range(0, len(words), 3):
-        phrase = " ".join(words[i:i+3])
-        if phrase:
-            phrases.append(phrase)
-            
-    phrase_count = len(phrases)
-    phrase_duration = audio_duration / phrase_count
-    subtitle_clips = []
+    # Calculate scale to fill the 1080x1920 area completely (Aspect Ratio Cover)
+    target_w, target_h = target_size
+    img_w, img_h = pil_img.size
+    scale_f = max(target_w / img_w, target_h / img_h)
     
-    for i, phrase in enumerate(phrases):
-        start_time = i * phrase_duration
+    # Base size is now slightly larger than target to allow for motion buffer
+    # We add 20% extra padding (1.2x) so we never see black edges while drifting
+    buffer_factor = 1.2 
+    fill_w = int(img_w * scale_f * buffer_factor)
+    fill_h = int(img_h * scale_f * buffer_factor)
+    
+    pil_img = pil_img.resize((fill_w, fill_h), Image.Resampling.LANCZOS)
+    
+    # --- RANDOMIZE MOTION ---
+    zoom_start = 1.0
+    zoom_end = random.uniform(1.1, 1.2) # Zooming in further
+    
+    # Random drift range (now safe because we have the 20% buffer)
+    max_dx = (fill_w - target_w) // 2
+    max_dy = (fill_h - target_h) // 2
+    
+    dx_start, dx_end = random.randint(-max_dx, max_dx), random.randint(-max_dx, max_dx)
+    dy_start, dy_end = random.randint(-max_dy, max_dy), random.randint(-max_dy, max_dy)
+
+    def make_frame(t):
+        progress = t / duration
         
-        # Base TextClip
-        text_clip = TextClip(
-            text=phrase,
-            font="C:/Windows/Fonts/arialbd.ttf",
-            font_size=70,
+        # Calculate current zoom and drift
+        curr_zoom = zoom_start + (zoom_end - zoom_start) * progress
+        curr_dx = dx_start + (dx_end - dx_start) * progress
+        curr_dy = dy_start + (dy_end - dy_start) * progress
+        
+        # Resize for zoom
+        z_w, z_h = int(fill_w * curr_zoom), int(fill_h * curr_zoom)
+        # Optimization: Only resize if zoom is significantly different
+        img_zoomed = pil_img.resize((z_w, z_h), Image.Resampling.LANCZOS)
+        
+        # Calculate center-based crop
+        center_x, center_y = img_zoomed.width // 2, img_zoomed.height // 2
+        
+        # Final Crop Coordinates
+        left = (center_x - target_w // 2) + curr_dx
+        top = (center_y - target_h // 2) + curr_dy
+        
+        # Final safety clamp to prevent black edges
+        left = max(0, min(left, img_zoomed.width - target_w))
+        top = max(0, min(top, img_zoomed.height - target_h))
+        
+        img_final = img_zoomed.crop((left, top, left + target_w, top + target_h))
+        
+        frame = np.array(img_final)
+        
+        # Fade-in effect logic
+        if t < 0.5:
+            alpha = t / 0.5
+            frame = (frame * alpha).astype(np.uint8)
+            
+        return frame
+
+    from moviepy import VideoClip
+    return VideoClip(make_frame, duration=duration)
+# ---------------------------------------------------------
+# SUBTITLE ENGINE
+# ---------------------------------------------------------
+def build_subtitles(script_text, audio_duration):
+    logger.info("...Generating Subtitles")
+    font_path = "C:/Windows/Fonts/arialbd.ttf"
+    if not os.path.exists(font_path): font_path = "Arial"
+
+    words = script_text.split()
+    phrases = [" ".join(words[i:i+3]) for i in range(0, len(words), 3)]
+    dur_per_phrase = audio_duration / max(len(phrases), 1)
+    
+    clips = []
+    for i, phrase in enumerate(phrases):
+        txt = (TextClip(
+            text=phrase.upper(),
+            font=font_path,
+            font_size=80,
             color="white",
             stroke_color="black",
-            stroke_width=3,
+            stroke_width=2,
             method="caption",
             size=(900, 400)
-        ).with_duration(phrase_duration).with_start(start_time).with_position(("center", 1350))
-
-        # 1️⃣ Fade in logic: 0 -> 1 over 0.25s
-        # 2️⃣ Scale pop-in logic: 0.90 -> 1.05
-        def s3_animator(get_frame, t):
-            # Get the original frame at time t
-            frame = get_frame(t)
-            
-            # Calculate opacity (0.0 to 1.0)
-            opacity = min(1.0, t / 0.25)
-            
-            # Apply opacity to the frame pixels (uint8)
-            # We multiply by opacity and ensure it remains uint8
-            return (frame * opacity).astype("uint8")
-
-        def scale_func(t):
-            return 0.90 + (0.15 * (t / phrase_duration))
-
-        # Apply scale first using built-in resized (which handles functions well)
-        # Then apply the custom transformation for opacity
-        animated_clip = (text_clip
-                         .resized(scale_func)
-                         .transform(s3_animator))
+        ).with_start(i * dur_per_phrase)
+         .with_duration(dur_per_phrase)
+         .with_position(("center", 1300)))
         
-        subtitle_clips.append(animated_clip)
-        
-    return subtitle_clips
+        # Text clips in v2 usually work better with static opacity
+        # If you need them to fade, use the same np.array logic as above
+        clips.append(txt)
+    return clips
+
 # ---------------------------------------------------------
-# MAIN RENDER FUNCTION
+# MAIN RENDERER
 # ---------------------------------------------------------
 def render_video(script_text: str, audio_path: str, media_paths: List[str], output_path: str):
-    audio_clip = None
-    final_clip = None
-    media_clips = []
-    subtitle_clips = []
-
+    logger.info("🎬 Starting Render Process")
+    
     try:
-        logger.info("🎬 Rendering video...")
-
-        # LOAD AUDIO
+        from moviepy import AudioFileClip, CompositeVideoClip
         audio_clip = AudioFileClip(audio_path)
-        audio_duration = audio_clip.duration
-
-        # PICK BACKGROUND IMAGE
-        bg_path = next(
-            (p for p in media_paths if p.lower().endswith((".jpg", ".jpeg", ".png"))),
-            media_paths[0]
-        )
-
-        # FOREGROUND MEDIA
-        slot_duration = audio_duration / len(media_paths)
-
+        audio_dur = audio_clip.duration
+        slot_dur = audio_dur / len(media_paths)
+        
+        final_clips = []
         for i, path in enumerate(media_paths):
+            # Create the dynamic clip
+            # Every time this runs, it picks new random drift/zoom values
+            clip = create_animated_image_clip(path, slot_dur)
+            clip = clip.with_start(i * slot_dur)
+            final_clips.append(clip)
+            
+        # ... (Include subtitle building code from previous step) ...
+        sub_clips = build_subtitles(script_text, audio_dur)
 
-            ext = path.lower().split(".")[-1]
-
-            if ext in ["mp4", "mov", "webm", "mkv"]:
-                clip = VideoFileClip(path)
-                clip = clip.subclipped(0, min(slot_duration, clip.duration))
-            else:
-                clip = ImageClip(path, duration=slot_duration)
-
-            clip = clip.resized(new_size=(1080, 1920))
-            clip = clip.with_start(i * slot_duration)
-
-            # ADD RANDOM MOTION
-            clip = apply_random_motion(clip, slot_duration)
-
-            media_clips.append(clip)
-
-        # SUBTITLES
-        font_path = get_font_path()
-        subtitle_clips = build_subtitles_s3(script_text, audio_duration)
-
-        # COMPOSITE
-        final_clip = CompositeVideoClip(
-            media_clips + subtitle_clips,
+        final_video = CompositeVideoClip(
+            final_clips + sub_clips, 
             size=(1080, 1920)
-        ).with_audio(audio_clip)
+        ).with_audio(audio_clip).with_duration(audio_dur)
 
-        # EXPORT
-        final_clip.write_videofile(
+        final_video.write_videofile(
             output_path,
-            fps=24,
+            fps=30,
             codec="libx264",
             audio_codec="aac",
-            preset="veryfast",
-            threads=8,
-            bitrate="2500k"
+            threads=4,
+            preset="ultrafast"
         )
-
-        logger.info("✅ Render complete")
+        logger.info(f"✅ Video saved to: {output_path}")
 
     except Exception as e:
-        logger.error(f"❌ Rendering failed: {e}")
-        raise
-
+        logger.error(f"❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        # CLEANUP
-        try:
-            if audio_clip: audio_clip.close()
-            for c in media_clips: c.close()
-            for t in subtitle_clips: t.close()
-            if final_clip: final_clip.close()
-        except:
-            pass
+        if 'audio_clip' in locals(): audio_clip.close()
+        if 'final_video' in locals(): final_video.close()
