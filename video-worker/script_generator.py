@@ -17,6 +17,14 @@ class ScriptGenerator:
         self.model_id = "gemini-3-flash-preview"
         logger.info(f'📝 ScriptGenerator initialized with {self.model_id}')
 
+    def _clean_json_string(self, text: str) -> str:
+        """Helper to remove common LLM JSON artifacts like trailing commas."""
+        # Remove trailing commas before a closing brace or bracket
+        text = re.sub(r',\s*([\]}])', r'\1', text)
+        # Remove any leading/trailing non-JSON characters (like markdown backticks)
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
+        return json_match.group() if json_match else text
+    
     def _get_narration(self, context: Dict[str, Any]) -> str:
         """Step 1: Generate script with 'Thinking' enabled to plan pacing and duration."""
 
@@ -29,9 +37,9 @@ class ScriptGenerator:
         }
         
         selected_vibe = genre_profiles.get(context['sub_niche'].lower(), "Dynamic and cinematic.")
-        # We calculate a word budget: 30 seconds - pauses = ~65 words max.
+        # We calculate a word budget: 45 seconds - pauses = ~90 words max.
         prompt = f"""
-           Act as a Director and Lead Editor for a 30-second cinematic short.
+           Act as a Director and Lead Editor for a 45-second cinematic short.
         
             GENRE: {context['sub_niche']}
             TOPIC: {context['topic']}
@@ -39,7 +47,7 @@ class ScriptGenerator:
             Language Code: Choose exactly one from [en-US, hi-IN].
 
             TASK:
-            Create a 30-second story blueprint. 
+            Create a 45-second story blueprint. 
             Focus on deep descriptive detail that captures the 'mood' and 'action' of each scene.
 
             CONSTRAINTS:
@@ -57,19 +65,19 @@ class ScriptGenerator:
                 "storyboard": [
                     {{
                     "sequence": "Hook",
-                    "timing": "0-5s",
+                    "timing": "0-7s",
                     "scene_description": "A vivid description of the environment and the character's initial action.",
                     "emotional_beat": "The specific feeling this scene should evoke."
                     }},
                     {{
                     "sequence": "Twist",
-                    "timing": "5-20s",
+                    "timing": "7-30s",
                     "scene_description": "How the environment or character changes. Detail the subtle 'wrong' element.",
                     "emotional_beat": "The shift in mood."
                     }},
                     {{
                     "sequence": "Payoff",
-                    "timing": "20-30s",
+                    "timing": "30-45s",
                     "scene_description": "The final climactic imagery and the character's end state.",
                     "emotional_beat": "The lingering impact."
                     }}
@@ -92,22 +100,16 @@ class ScriptGenerator:
             [part.text for part in response.candidates[0].content.parts if not hasattr(part, 'thought') or not part.thought]
         )
 
+        actual_text = "".join(
+            [part.text for part in response.candidates[0].content.parts if not hasattr(part, 'thought') or not part.thought]
+        )
+
         try:
-            # Use regex to find the JSON block even if the model adds markdown backticks
-            json_match = re.search(r"\{.*\}", actual_text, re.DOTALL)
-            if not json_match:
-                raise ValueError("No JSON found")
-                
-            data = json.loads(json_match.group())
-            
-            # Validation: Check word count locally as a safety net
-            word_count = len(data['narration'].split())
-            if word_count > 75:
-                logger.warning(f"Script might be too long: {word_count} words.")
-                
+            cleaned_json = self._clean_json_string(actual_text)
+            data = json.loads(cleaned_json)
             return data
         except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Parsing failed: {e}")
+            logger.error(f"Step 1 Parsing failed. Raw Text: {actual_text[:200]}...")
             raise
     
     def generate_script(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -166,21 +168,25 @@ class ScriptGenerator:
                 temperature=0.4
             )
         )
-        logger.info("🤖 Step 2: Planning Visual Director logic...",response.text )
-                # Extracting text while skipping 'thought' parts
+# FIX 1: Fixed the logging crash by using a format string
+        logger.debug("Step 2 Raw Response: %s", response.text)
+
         actual_text = "".join(
             [part.text for part in response.candidates[0].content.parts if not hasattr(part, 'thought') or not part.thought]
         )
 
         try:
-            # Use regex to find the JSON block even if the model adds markdown backticks
-            json_match = re.search(r"\{.*\}", actual_text, re.DOTALL)
-            if not json_match:
-                raise ValueError("No JSON found")
+            # FIX 2: Applied cleaning logic to Step 2 as well
+            cleaned_json = self._clean_json_string(actual_text)
+            data = json.loads(cleaned_json)
+            
+            # Injecting storyboard back if missing (safety)
+            if 'storyboard_reference' not in data:
+                data['storyboard_reference'] = narration.get('storyboard')
                 
-            data = json.loads(json_match.group())
-        
             return data
         except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Parsing failed: {e}")
+            # FIX 3: Detailed error logging to see what specifically broke
+            logger.error("Step 2 JSON Parsing failed: %s", e)
+            logger.error("Problematic Text: %s", actual_text)
             raise
