@@ -108,6 +108,14 @@ def build_subtitles(script_text, audio_path):
     print("Aligning script to audio...")
     result = model.align(audio_path, clean_text, language='en')
     
+    # --- 1. FLATTEN THE LIST FIRST ---
+    # We need a simple list of words to "look ahead" easily
+    all_words = []
+    for segment in result.segments:
+        for word in segment.words:
+            if word.word.strip():
+                all_words.append(word)
+
     clips = []
     
     # --- POP ANIMATION FUNCTION (Your original code) ---
@@ -127,39 +135,47 @@ def build_subtitles(script_text, audio_path):
             return np.array(img.crop((left, top, left + w, top + h)))
         return frame
 
-    # 4. Generate Clips
-    # Stable-ts returns a hierarchy: Result -> Segments -> Words
-    word_counter = 0 # To track alternating colors
-    
-    for segment in result.segments:
-        for word in segment.words:
-            word_text = word.word.strip()
-            start_t = word.start
-            end_t = word.end
-            duration = end_t - start_t
-            
-            # Skip empty words or ultra-short glitches
-            if not word_text:
-                continue
+    # --- 2. ITERATE WITH LOOK-AHEAD ---
+    for i, word in enumerate(all_words):
+        word_text = word.word.strip()
+        start_t = word.start
+        original_end_t = word.end
+        
+        # LOGIC: Check when the NEXT word starts
+        if i < len(all_words) - 1:
+            next_word_start = all_words[i + 1].start
+            # If the current word overlaps with the next one, CUT IT SHORT.
+            # We subtract 0.05s buffer to ensure a tiny clean gap (optional but looks cleaner)
+            end_t = min(original_end_t, next_word_start) 
+        else:
+            # Last word gets its natural duration
+            end_t = original_end_t
 
-            # Alternating Colors (White / Yellow)
-            color = "white" if word_counter % 2 == 0 else "yellow"
-            
-            txt = (TextClip(
-                text=word_text.upper(),
-                font="C:/Windows/Fonts/arialbd.ttf",
-                font_size=130, 
-                color=color,
-                stroke_color="black",
-                stroke_width=6,
-                method="label",
-                transparent=True,
-                margin=(20, 40)
-            )
-            .with_start(start_t)
-            # Ensure minimum duration so words don't flicker too fast
-            .with_duration(max(0.15, duration)) 
-            .with_position(("center", 0.7), relative=True))
+        # Calculate duration
+        duration = end_t - start_t
+
+        # CRITICAL FIX: If speech is insanely fast, duration might be negative or near zero.
+        # We ensure a bare minimum of 1 frame (0.04s) to prevent errors, 
+        # but WE DO NOT force 0.15s anymore.
+        if duration < 0.04: 
+            duration = 0.04
+
+        color = "white" if i % 2 == 0 else "yellow"
+        
+        txt = (TextClip(
+            text=word_text.upper(),
+            font="C:/Windows/Fonts/arialbd.ttf",
+            font_size=130, 
+            color=color,
+            stroke_color="black",
+            stroke_width=6,
+            method="label",
+            transparent=True,
+            margin=(20, 40)
+        )
+        .with_start(start_t)
+        .with_duration(duration) # Use the strict calculated duration
+        .with_position(("center", 0.7), relative=True))
 
             # Apply the Pop Effect
             txt = txt.transform(pop_effect)
