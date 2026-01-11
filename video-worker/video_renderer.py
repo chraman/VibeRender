@@ -6,6 +6,7 @@ from PIL import Image
 from typing import List
 import re
 import whisper
+import stable_whisper
 
 try:
     from moviepy import AudioFileClip, VideoClip, VideoFileClip, CompositeVideoClip, TextClip
@@ -92,82 +93,79 @@ def create_animated_image_clip(image_path, duration, target_size=(1080, 1920)):
 # SUBTITLE ENGINE
 # ---------------------------------------------------------
 def build_subtitles(script_text, audio_path):
-    # 1. Load Whisper (CPU optimized for your 16GB RAM)
-    model = whisper.load_model("base", device="cpu")
+    # 1. Load Stable Whisper (CPU optimized)
+    # This model is much better at timestamp stability than default Whisper
+    model = stable_whisper.load_model("base", device="cpu")
     
-    # Force language and disable translation
-    # word_timestamps=True is the key for "one-by-one" appearance
-    result = model.transcribe(
-        audio_path,
-        word_timestamps=True, 
-        language="en", 
-        task="transcribe",
-        max_initial_timestamp=None,
-        no_speech_threshold=0.6,
-        condition_on_previous_text=False)
-    
-    # 2. Clean your original script (Ensures NO translation is used)
+    # 2. Prepare the text for Alignment
+    # Remove [00:00] timestamps and clean up extra spaces
     clean_text = re.sub(r'\[.*?\]', '', script_text)
-    original_words = clean_text.split()
+    clean_text = " ".join(clean_text.split())
+
+    # 3. ALIGNMENT (The Magic Step)
+    # 'align' forces the audio to match your text, preventing word drift.
+    # language='en' is usually best for Hinglish written in Latin script.
+    print("Aligning script to audio...")
+    result = model.align(audio_path, clean_text, language='en')
     
     clips = []
-        # 3. Extract EVERY word timestamp from Whisper
-    all_word_timestamps = []
-    for segment in result['segments']:
-        for word_data in segment['words']:
-            all_word_timestamps.append({
-                'start': word_data['start'],
-                'end': word_data['end']
-            })
-
-    # --- POP ANIMATION FUNCTION ---
+    
+    # --- POP ANIMATION FUNCTION (Your original code) ---
     def pop_effect(get_frame, t):
         frame = get_frame(t)
+        # Apply zoom only for the first 0.1 seconds
         if t < 0.1:
             zoom = 1.2 - (0.2 * (t / 0.1))
             img = Image.fromarray(frame)
             w, h = img.size
+            # Resize with high-quality resampling
             img = img.resize((int(w*zoom), int(h*zoom)), Image.Resampling.LANCZOS)
+            
+            # Center crop to maintain original dimensions
             left = (img.size[0] - w) / 2
             top = (img.size[1] - h) / 2
             return np.array(img.crop((left, top, left + w, top + h)))
         return frame
 
-    # --- UPDATED SYNC LOOP ---
-    last_end_time = 0
-    for i in range(len(original_words)):
-        # If Whisper missed words at the end, use the last known timing
-        if i < len(all_word_timestamps):
-            word_info = all_word_timestamps[i]
-            start_t = word_info['start']
-            end_t = word_info['end']
-            last_end_time = end_t
-        else:
-            # SAFETY: If script is longer than Whisper's detection, 
-            # show remaining words briefly at the very end
-            start_t = last_end_time
-            end_t = last_end_time + 0.3 
-            last_end_time = end_t
+    # 4. Generate Clips
+    # Stable-ts returns a hierarchy: Result -> Segments -> Words
+    word_counter = 0 # To track alternating colors
+    
+    for segment in result.segments:
+        for word in segment.words:
+            word_text = word.word.strip()
+            start_t = word.start
+            end_t = word.end
+            duration = end_t - start_t
+            
+            # Skip empty words or ultra-short glitches
+            if not word_text:
+                continue
 
-        color = "white" if i % 2 == 0 else "yellow"
-        
-        txt = (TextClip(
-            text=original_words[i].upper(),
-            font="C:/Windows/Fonts/arialbd.ttf",
-            font_size=130, 
-            color=color,
-            stroke_color="black",
-            stroke_width=6,
-            method="label",
-            transparent=True,
-             # Label is better for single words
-            margin=(20, 40)
-        ).with_start(start_t)
-         .with_duration(max(0.1, end_t - start_t)) # Ensure duration is never 0
-         .with_position(("center", 0.7), relative=True))
+            # Alternating Colors (White / Yellow)
+            color = "white" if word_counter % 2 == 0 else "yellow"
+            
+            txt = (TextClip(
+                text=word_text.upper(),
+                font="C:/Windows/Fonts/arialbd.ttf",
+                font_size=130, 
+                color=color,
+                stroke_color="black",
+                stroke_width=6,
+                method="label",
+                transparent=True,
+                margin=(20, 40)
+            )
+            .with_start(start_t)
+            # Ensure minimum duration so words don't flicker too fast
+            .with_duration(max(0.15, duration)) 
+            .with_position(("center", 0.7), relative=True))
 
-        txt = txt.transform(pop_effect)
-        clips.append(txt)
+            # Apply the Pop Effect
+            txt = txt.transform(pop_effect)
+            
+            clips.append(txt)
+            word_counter += 1
 
     return clips
 # ---------------------------------------------------------
