@@ -97,15 +97,21 @@ def build_subtitles(script_text, audio_path):
     
     # Force language and disable translation
     # word_timestamps=True is the key for "one-by-one" appearance
-    result = model.transcribe(audio_path, word_timestamps=True, language="en", task="transcribe")
+    result = model.transcribe(
+        audio_path,
+        word_timestamps=True, 
+        language="en", 
+        task="transcribe",
+        max_initial_timestamp=None,
+        no_speech_threshold=0.6,
+        condition_on_previous_text=False)
     
     # 2. Clean your original script (Ensures NO translation is used)
     clean_text = re.sub(r'\[.*?\]', '', script_text)
     original_words = clean_text.split()
     
     clips = []
-    
-    # 3. Extract EVERY word timestamp from Whisper
+        # 3. Extract EVERY word timestamp from Whisper
     all_word_timestamps = []
     for segment in result['segments']:
         for word_data in segment['words']:
@@ -114,45 +120,53 @@ def build_subtitles(script_text, audio_path):
                 'end': word_data['end']
             })
 
-    # 4. Match your original text to Whisper's timing
-    # Even if Whisper mishears a word, we use YOUR word at THAT time
-    for i, word_info in enumerate(all_word_timestamps):
-        if i >= len(original_words): break
+    # --- POP ANIMATION FUNCTION ---
+    def pop_effect(get_frame, t):
+        frame = get_frame(t)
+        if t < 0.1:
+            zoom = 1.2 - (0.2 * (t / 0.1))
+            img = Image.fromarray(frame)
+            w, h = img.size
+            img = img.resize((int(w*zoom), int(h*zoom)), Image.Resampling.LANCZOS)
+            left = (img.size[0] - w) / 2
+            top = (img.size[1] - h) / 2
+            return np.array(img.crop((left, top, left + w, top + h)))
+        return frame
+
+    # --- UPDATED SYNC LOOP ---
+    last_end_time = 0
+    for i in range(len(original_words)):
+        # If Whisper missed words at the end, use the last known timing
+        if i < len(all_word_timestamps):
+            word_info = all_word_timestamps[i]
+            start_t = word_info['start']
+            end_t = word_info['end']
+            last_end_time = end_t
+        else:
+            # SAFETY: If script is longer than Whisper's detection, 
+            # show remaining words briefly at the very end
+            start_t = last_end_time
+            end_t = last_end_time + 0.3 
+            last_end_time = end_t
+
+        color = "white" if i % 2 == 0 else "yellow"
         
-        word_text = original_words[i].upper()
-        start_t = word_info['start']
-        end_t = word_info['end']
-        
-        # Trendy styling: One word in the center
         txt = (TextClip(
-            text=word_text,
+            text=original_words[i].upper(),
             font="C:/Windows/Fonts/arialbd.ttf",
-            font_size=120,      # Bigger font since it's only one word
-            color="white",
+            font_size=130, 
+            color=color,
             stroke_color="black",
-            stroke_width=4,
-            method="label", # Label is better for single words
-            margin=(20, 40) # Adds 20px horizontal and 40px vertical padding  # 'label' is faster than 'caption' for single words
+            stroke_width=6,
+            method="label",
+            transparent=True,
+             # Label is better for single words
+            margin=(20, 40)
         ).with_start(start_t)
-         .with_duration(end_t - start_t)
-         .with_position(("center", "center"))) # Center of screen for high impact
+         .with_duration(max(0.1, end_t - start_t)) # Ensure duration is never 0
+         .with_position(("center", 0.7), relative=True))
 
-        # 5. The "Trendy" Punch-In Animation
-        def word_pop(get_frame, t):
-            frame = get_frame(t)
-            # Fast pop: 0.1 seconds
-            if t < 0.1:
-                zoom = 1.3 - (0.3 * (t / 0.1)) # Start big (1.3x) and shrink
-                img = Image.fromarray(frame)
-                w, h = img.size
-                img = img.resize((int(w*zoom), int(h*zoom)), Image.Resampling.LANCZOS)
-                # Crop back to center
-                left = (img.size[0] - w) / 2
-                top = (img.size[1] - h) / 2
-                return np.array(img.crop((left, top, left + w, top + h)))
-            return frame
-
-        txt = txt.transform(word_pop)
+        txt = txt.transform(pop_effect)
         clips.append(txt)
 
     return clips
