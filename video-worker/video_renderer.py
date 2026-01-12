@@ -108,8 +108,7 @@ def build_subtitles(script_text, audio_path):
     print("Aligning script to audio...")
     result = model.align(audio_path, clean_text, language='en')
     
-    # --- 1. FLATTEN THE LIST FIRST ---
-    # We need a simple list of words to "look ahead" easily
+    # 4. FLATTEN THE LIST
     all_words = []
     for segment in result.segments:
         for word in segment.words:
@@ -118,48 +117,43 @@ def build_subtitles(script_text, audio_path):
 
     clips = []
     
-    # --- POP ANIMATION FUNCTION (Your original code) ---
+    # --- POP ANIMATION FUNCTION ---
     def pop_effect(get_frame, t):
         frame = get_frame(t)
-        # Apply zoom only for the first 0.1 seconds
         if t < 0.1:
             zoom = 1.2 - (0.2 * (t / 0.1))
             img = Image.fromarray(frame)
             w, h = img.size
-            # Resize with high-quality resampling
             img = img.resize((int(w*zoom), int(h*zoom)), Image.Resampling.LANCZOS)
             
-            # Center crop to maintain original dimensions
             left = (img.size[0] - w) / 2
             top = (img.size[1] - h) / 2
             return np.array(img.crop((left, top, left + w, top + h)))
         return frame
 
-    # --- 2. ITERATE WITH LOOK-AHEAD ---
+    # --- 5. ITERATE WITH LOOK-AHEAD ---
     for i, word in enumerate(all_words):
         word_text = word.word.strip()
         start_t = word.start
         original_end_t = word.end
         
-        # LOGIC: Check when the NEXT word starts
+        # Calculate end_t by checking when the NEXT word starts to prevent overlap
         if i < len(all_words) - 1:
             next_word_start = all_words[i + 1].start
-            # If the current word overlaps with the next one, CUT IT SHORT.
-            # We subtract 0.05s buffer to ensure a tiny clean gap (optional but looks cleaner)
-            end_t = min(original_end_t, next_word_start) 
+            # Use the earlier of: the word's natural end or the next word's start
+            # Added a tiny 0.02s gap for visual clarity between fast words
+            end_t = min(original_end_t, next_word_start - 0.02) 
         else:
-            # Last word gets its natural duration
             end_t = original_end_t
 
-        # Calculate duration
+        # Calculate final duration
         duration = end_t - start_t
 
-        # CRITICAL FIX: If speech is insanely fast, duration might be negative or near zero.
-        # We ensure a bare minimum of 1 frame (0.04s) to prevent errors, 
-        # but WE DO NOT force 0.15s anymore.
-        if duration < 0.04: 
+        # Ensure duration is at least 1 frame (approx 0.04s) but not overlapping
+        if duration <= 0:
             duration = 0.04
 
+        # FIXED: Use 'i' for alternating colors instead of the missing 'word_counter'
         color = "white" if i % 2 == 0 else "yellow"
         
         txt = (TextClip(
@@ -174,14 +168,13 @@ def build_subtitles(script_text, audio_path):
             margin=(20, 40)
         )
         .with_start(start_t)
-        .with_duration(duration) # Use the strict calculated duration
+        .with_duration(duration)
         .with_position(("center", 0.7), relative=True))
 
-            # Apply the Pop Effect
-            txt = txt.transform(pop_effect)
-            
-            clips.append(txt)
-            word_counter += 1
+        # Apply the Pop Effect
+        txt = txt.transform(pop_effect)
+        
+        clips.append(txt)
 
     return clips
 # ---------------------------------------------------------

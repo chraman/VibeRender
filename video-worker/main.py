@@ -40,7 +40,7 @@ DB_CONFIG = {
 POLL_INTERVAL = Config.POLL_INTERVAL
 
 # Test mode flag - when True, uses test assets instead of generating new ones
-TEST_MODE = True
+TEST_MODE = False
 
 
 def get_db_connection():
